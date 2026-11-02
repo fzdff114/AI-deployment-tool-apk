@@ -414,7 +414,26 @@ private fun AIStudioApp() {
                                         apiModels = found
                                         workspaceStatus = "连接成功 · 获取到 ${found.size} 个模型。你可以从模型列表选择，也可以手动填写。"
                                     } catch (e: Exception) {
-                                        errorText = (e.message ?: "连接测试失败") + if (settings.model.isNotBlank()) "\\n你仍可手动尝试当前模型 ID 发起聊天。" else "\\n请确认服务商支持 GET /models；不支持时可手动填写模型 ID 后直接测试聊天。"
+                                        val detail = e.message ?: "连接测试失败"
+                                        if (settings.model.isNotBlank() &&
+                                            !detail.contains("HTTP 401") &&
+                                            !detail.contains("HTTP 403")
+                                        ) {
+                                            try {
+                                                val reply = ApiClient.complete(
+                                                    settings.copy(maxTokens = 16, reasoning = "auto", sendReasoning = false),
+                                                    apiKey,
+                                                    "请只回复 OK"
+                                                )
+                                                apiModels = emptyList()
+                                                workspaceStatus = "API 聊天连接成功。该服务未提供可用的 /models 列表接口；当前模型验证通过。"
+                                                errorText = ""
+                                            } catch (chatError: Exception) {
+                                                errorText = "$detail\\n使用当前模型测试聊天也失败：${chatError.message ?: "未知错误"}"
+                                            }
+                                        } else {
+                                            errorText = detail + if (settings.model.isNotBlank()) "\\n请确认 API Key 与接口产品匹配。" else "\\n若服务商不支持 GET /models，请先手动填写模型 ID。"
+                                        }
                                     } finally { isBusy = false }
                                 }
                             },
