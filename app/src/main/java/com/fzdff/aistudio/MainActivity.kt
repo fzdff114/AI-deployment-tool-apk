@@ -195,7 +195,7 @@ private fun AIStudioApp() {
                                     Text("AI Studio", fontWeight = FontWeight.Bold, fontSize = 20.sp)
                                     Text(
                                         when (tab) {
-                                            AppTab.CHAT -> if (useLocal) "本机模型 · 离线推理" else "${settings.provider} · ${settings.model}"
+                                            AppTab.CHAT -> if (useLocal) "本机模型 · 离线推理" else "${settings.provider} · ${settings.model.ifBlank { "请选择模型" }}"
                                             AppTab.FILES -> "代码与文件开发"
                                             AppTab.MODELS -> "本地模型管理"
                                             AppTab.SETTINGS -> "偏好与 API 配置"
