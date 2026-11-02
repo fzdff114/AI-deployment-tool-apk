@@ -19,7 +19,6 @@ FetchContent_Declare(
     llama_cpp
     GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
     GIT_TAG 5c2ea1ab11a17a750dabffe31e8c182ddf4966cc
-    GIT_SHALLOW TRUE
     GIT_SUBMODULES_RECURSE TRUE
 )
 FetchContent_MakeAvailable(llama_cpp)
