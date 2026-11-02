@@ -873,7 +873,7 @@ private fun SettingsScreen(
                 if (settings.provider.contains("Coding")) {
                     "当前为 GLM Coding Plan 专用接口。请使用 Coding Plan 页面生成的套餐 Key；模型 ID 由你自己决定。"
                 } else {
-                    "当前为智谱标准 API。请使用标准 API Keys 页面创建的密钥；模型 ID 由你自己决定。"
+                    "当前为智谱标准 API。请使用智谱开放平台「API Keys」页面创建的标准 API Key；模型 ID 由你自己决定。"
                 }
             } else {
                 "选择服务商只填写 API 地址；模型 ID 由你自己决定和填写。"
@@ -941,7 +941,7 @@ private fun SettingsScreen(
                 onClick = onTest,
                 enabled = !busy && apiKey.isNotBlank() && settings.endpoint.isNotBlank(),
                 modifier = Modifier.weight(1f).height(48.dp)
-            ) { Text(if (busy) "测试中…" else "测试接口 / 获取模型") }
+            ) { Text(if (busy) "测试中…" else "连接并拉取模型") }
             Button(
                 onClick = onSave,
                 enabled = apiKey.isNotBlank() && settings.endpoint.isNotBlank(),
