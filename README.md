@@ -8,7 +8,9 @@
 - 测试连接不再强制要求先填模型 ID；如果服务商不支持 `GET /models`，仍可手动填写模型 ID 后直接聊天
 - 聊天输入框继续适配 Android IME：adjustResize、imePadding、隐藏导航栏与输入法 Send 动作
 - CI 增加 APK 签名证书验证，并在 GitHub Actions 摘要中显示 SHA-256 指纹
-- 支持通过 GitHub Actions Secrets 配置固定 Android 签名密钥，便于后续版本覆盖安装升级
+- 支持通过 GitHub Actions Secrets 配置固定 Android 签名密钥，避免每次 CI 生成不同证书而导致覆盖安装失败
+- 模型默认值清理改为一次性迁移，不会再把用户自己选定的模型 ID 清空
+- 输入框增加系统导航区域 Insets 适配，避免底部手势区域遮挡发送栏
 
 ## 云端 API
 - OpenAI 兼容 API：OpenAI、DeepSeek、OpenRouter、智谱标准 API、GLM Coding Plan、自定义端点
@@ -38,11 +40,13 @@ Android APK 必须带有签名证书。Gradle 构建的 APK 会嵌入签名证�
 
 GitHub Actions 在上传 Release 前会运行 `apksigner verify --print-certs`，验证 APK 签名并记录证书 SHA-256 指纹。
 
-默认 CI 回退到 Gradle 自动生成的 Debug 签名密钥。这种密钥在不同 GitHub Runner 上可能不同：全新安装可用，但覆盖升级旧版本时可能出现签名不一致。要启用稳定签名：
-1. 使用项目维护者提供的私有签名密钥包。
+默认 CI 回退到 Gradle 自动生成的 Debug 签名密钥。这种密钥在不同 GitHub Runner 上可能不同：全新安装可用，但覆盖升级旧版本时可能出现签名不一致。当前 v1.1.3 及更早版本若使用了临时 Debug 证书，第一次换成下面的固定证书时需要卸载旧安装后再安装新版本；Android 不允许跨证书直接覆盖。卸载会删除本机应用数据，请先考虑记录聊天内容并准备重新输入 API Key。
+
+要启用稳定签名：
+1. 下载本次提供的私有签名密钥文件 `AIStudio-release-keystore.jks` 和配置文件 `AIStudio-GitHub-Signing-Secrets.txt`。
 2. 打开 GitHub 仓库 Settings → Secrets and variables → Actions。
 3. 新建以下 4 个 Repository secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。
-4. `ANDROID_KEYSTORE_BASE64` 填入私有密钥包中 base64 文件的整行内容；其余 3 项按密钥配置说明填写。
+4. `ANDROID_KEYSTORE_BASE64` 填入配置文件中对应 Secret 的整行 base64 内容；其余 3 项按文件里的说明填写。
 5. 重新运行 GitHub Actions。后续版本会使用同一签名身份。
 
 不要将 `.jks`、密码或 base64 密钥内容提交到公开 GitHub 仓库。丢失私钥后，不能继续用相同身份签署升级包。
