@@ -2,13 +2,15 @@
 
 独立原生 Android AI 客户端。无需 Termux、Python、浏览器控制台或常驻本地服务器。
 
-## v1.1.2 更新
-- 修复智谱 BigModel v4 的 API 路径：`/api/paas/v4/chat/completions`，不再错误追加 `/v1`
-- 增加智谱 AI 服务商预设（默认地址与模型 ID 可自行修改）
-- API Key 支持输入时自动去除可选的 `Bearer` 前缀、空格与引号
-- 优化 400 / 401 / 403 / 404 / 429 错误说明，优先显示服务端 `message` 和 `code`
-- 智谱推理开关使用 `thinking.type` 参数
-- 设置页面服务商改为双列布局；模型文件名避免折行；聊天消息自动滚动到底部
+## v1.1.3 更新
+- 智谱 API 鉴权：先按官方方式使用原始 API Key；若服务端返回 401，且密钥为 `id.secret` 格式，再自动尝试智谱文档提供的 HS256 JWT 方式
+- API Key 输入会清理首尾空格、引号和可选的 Bearer 前缀
+- 仍然收到 401 时，明确提示鉴权失败与模型 ID 无关，并保留服务端原始错误信息
+- 服务商预设只填写 API 地址，不再自动替用户选择模型
+- 清除旧版自动填入的示例模型 ID；模型 ID 由使用者自己输入
+- 移除聊天首页预设问题卡片
+- 聊天输入框适配 Android 输入法：键盘弹出时隐藏底部导航、输入区域随键盘上移、输入法发送键可以发送消息
+- Activity 与 Manifest 均设置 adjustResize，避免输入框被输入法遮挡
 
 ## 功能
 - OpenAI 兼容 API：OpenAI、DeepSeek、OpenRouter、智谱 AI、自定义端点
@@ -19,14 +21,15 @@
 - API Key 使用 Android Keystore AES-GCM 加密存储
 
 ## 智谱 AI 配置
-在设置中选择「智谱 AI」，或手动填写：
-- API 基础地址：`https://open.bigmodel.cn/api/paas/v4`
-- 模型 ID：请以智谱控制台实际可用的模型 ID 为准，例如界面中提供的模型名称
-- API Key：从智谱开放平台的 API Keys 页面复制完整 API Key
+选择「智谱 AI」只会填入 API 基础地址：
+`https://open.bigmodel.cn/api/paas/v4`
 
-本应用会自动请求 `/chat/completions`，完整请求地址为 `https://open.bigmodel.cn/api/paas/v4/chat/completions`。采用 OpenAI 兼容的 `Authorization: Bearer <API_KEY>` 认证格式。
+模型 ID 不会自动选择，请从智谱当前模型目录中自行选择并填写。请求路径为：
+`https://open.bigmodel.cn/api/paas/v4/chat/completions`
 
-**如果返回 HTTP 401**，这是服务端拒绝了密钥，不是模型名称错误。请确认复制的是智谱开放平台生成的完整、有效 API Key，而不是网页登录令牌、其他平台密钥、过期密钥，或仅复制了密钥的一部分。不要把 API Key 发到聊天、截图或 GitHub。
+智谱官方 HTTP 文档说明，通用 API 可直接使用 `Authorization: Bearer YOUR_API_KEY`；同时也提供由 `id.secret` API Key 生成的 HS256 JWT 鉴权方式。本应用先尝试直接 API Key，遇到 401 后再尝试 JWT。见 [智谱 HTTP API 调用文档](https://docs.bigmodel.cn/cn/guide/develop/http/introduction)。
+
+若两种方式都返回 401，需检查该密钥是否属于当前智谱 API 产品、是否被禁用，以及是否完整复制。不要将 API Key 发送给他人，也不要提交到 GitHub。
 
 ## 获取 APK
 每次版本更新到 main 分支后，GitHub Actions 自动构建 APK 并发布到 GitHub Releases：
