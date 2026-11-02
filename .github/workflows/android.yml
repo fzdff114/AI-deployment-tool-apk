@@ -75,7 +75,7 @@ jobs:
           {
             echo "### APK signature verification"
             echo "- Signature verification: passed"
-            echo "- Signing certificate SHA-256: `$CERT_SHA256`"
+            echo "- Signing certificate SHA-256: $CERT_SHA256"
             echo "- APK contains a valid Android APK signing block; no separate CA certificate installation is required."
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -93,7 +93,11 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(grep -m1 'versionName = "' app/build.gradle.kts | cut -d '"' -f2)
-          test -n "$VERSION"
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Could not read versionName from app/build.gradle.kts."
+            exit 1
+          fi
+          echo "Publishing AI Studio version: $VERSION"
           TAG="v${VERSION}"
           APK="app/build/outputs/apk/debug/app-debug.apk"
           ASSET="AIStudio-${VERSION}-arm64-signed.apk"
