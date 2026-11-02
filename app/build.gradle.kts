@@ -8,11 +8,12 @@ val ciKeystorePath = System.getenv("AI_STUDIO_KEYSTORE_PATH")
 val ciStorePassword = System.getenv("AI_STUDIO_KEYSTORE_PASSWORD")
 val ciKeyAlias = System.getenv("AI_STUDIO_KEY_ALIAS")
 val ciKeyPassword = System.getenv("AI_STUDIO_KEY_PASSWORD")
-val hasCiSigning = !ciKeystorePath.isNullOrBlank() &&
+val hasCiSigning =
+    !ciKeystorePath.isNullOrBlank() &&
     !ciStorePassword.isNullOrBlank() &&
     !ciKeyAlias.isNullOrBlank() &&
     !ciKeyPassword.isNullOrBlank() &&
-    file(ciKeystorePath).exists()
+    (ciKeystorePath?.let { file(it).exists() } == true)
 
 
 android {
@@ -39,9 +40,9 @@ android {
         if (hasCiSigning) {
             create("stableCi") {
                 storeFile = file(ciKeystorePath!!)
-                storePassword = ciStorePassword
-                keyAlias = ciKeyAlias
-                keyPassword = ciKeyPassword
+                storePassword = ciStorePassword!!
+                keyAlias = ciKeyAlias!!
+                keyPassword = ciKeyPassword!!
             }
         }
     }
