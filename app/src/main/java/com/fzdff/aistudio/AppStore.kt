@@ -15,7 +15,7 @@ data class ChatMessage(val role: String, val content: String, val id: Long = Sys
 data class AppSettings(
     val provider: String = "OpenAI",
     val endpoint: String = "https://api.openai.com/v1",
-    val model: String = "gpt-4.1-mini",
+    val model: String = "",
     val theme: String = "blue",
     val reasoning: String = "medium",
     val sendReasoning: Boolean = false,
@@ -89,7 +89,11 @@ object AppStore {
         return AppSettings(
             provider = p.getString("provider", "OpenAI") ?: "OpenAI",
             endpoint = p.getString("endpoint", "https://api.openai.com/v1") ?: "https://api.openai.com/v1",
-            model = p.getString("model", "gpt-4.1-mini") ?: "gpt-4.1-mini",
+            model = (p.getString("model", "") ?: "").let { saved ->
+                // These values were silently prefilled by older app versions as examples,
+                // not chosen by the user. Clear them once so users choose their own model ID.
+                if (saved in setOf("gpt-4.1-mini", "deepseek-chat", "openai/gpt-4.1-mini", "glm-4.7-flash")) "" else saved
+            },
             theme = p.getString("theme", "blue") ?: "blue",
             reasoning = p.getString("reasoning", "medium") ?: "medium",
             sendReasoning = p.getBoolean("send_reasoning", false),
