@@ -13,6 +13,8 @@
 static std::mutex g_mutex;
 static llama_model * g_model = nullptr;
 static bool g_backend_ready = false;
+static uint32_t g_context_size = 4096;
+static int g_thread_count = 4;
 
 static std::string fromJString(JNIEnv * env, jstring value) {
     if (!value) return {};
@@ -44,7 +46,9 @@ Java_com_fzdff_aistudio_LocalModelEngine_nativeLoad(
 
     auto params = llama_model_default_params();
     params.n_gpu_layers = 0;
-    params.use_mmap = true;
+    params.load_mode = LLAMA_LOAD_MODE_MMAP;
+    g_context_size = static_cast<uint32_t>(std::max(1024, std::min(16384, static_cast<int>(contextSize))));
+    g_thread_count = std::max(2, std::min(8, static_cast<int>(threads)));
     g_model = llama_model_load_from_file(modelPath.c_str(), params);
     if (!g_model) {
         LOGE("Could not load model: %s", modelPath.c_str());
@@ -62,14 +66,12 @@ Java_com_fzdff_aistudio_LocalModelEngine_nativeGenerate(
     if (prompt.empty()) return toJString(env, "ERROR: 提示词为空");
 
     auto ctxParams = llama_context_default_params();
-    const uint32_t contextSize = 4096;
+    const uint32_t contextSize = g_context_size;
     ctxParams.n_ctx = contextSize;
     ctxParams.n_batch = 512;
     ctxParams.n_ubatch = 512;
-    const int hw = static_cast<int>(std::thread::hardware_concurrency());
-    const int workerCount = std::max(2, std::min(8, hw > 1 ? hw - 1 : 2));
-    ctxParams.n_threads = workerCount;
-    ctxParams.n_threads_batch = workerCount;
+    ctxParams.n_threads = g_thread_count;
+    ctxParams.n_threads_batch = g_thread_count;
 
     llama_context * ctx = llama_init_from_model(g_model, ctxParams);
     if (!ctx) return toJString(env, "ERROR: 无法创建推理上下文。请尝试降低上下文长度或换用更小的模型。");
