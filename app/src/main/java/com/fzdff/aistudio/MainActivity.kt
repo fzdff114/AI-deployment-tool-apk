@@ -617,16 +617,7 @@ private fun ChatScreen(
                 Spacer(Modifier.height(16.dp))
                 Text("有什么可以帮你？", fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
-                Text("可以聊天、分析问题、编写代码或规划项目。", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(24.dp))
-                listOf("帮我解释一个复杂概念", "帮我检查并修复这段代码", "帮我制定一个学习计划").forEach { suggestion ->
-                    OutlinedCard(
-                        Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onInput(suggestion) },
-                        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Text(suggestion, Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurface)
-                    }
-                }
+                Text("输入消息开始对话。模型会根据你填写的模型 ID 工作。", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             }
         } else {
             LazyColumn(
