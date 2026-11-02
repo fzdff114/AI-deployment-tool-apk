@@ -522,7 +522,8 @@ private fun SetupScreen(
         Triple("OpenAI", "https://api.openai.com/v1", ""),
         Triple("DeepSeek", "https://api.deepseek.com", ""),
         Triple("OpenRouter", "https://openrouter.ai/api/v1", ""),
-        Triple("智谱 AI", "https://open.bigmodel.cn/api/paas/v4", ""),
+        Triple("智谱标准 API", "https://open.bigmodel.cn/api/paas/v4", ""),
+        Triple("智谱 Coding Plan", "https://open.bigmodel.cn/api/coding/paas/v4", ""),
         Triple("自定义", endpoint, model)
     )
     Column(
@@ -851,7 +852,8 @@ private fun SettingsScreen(
         Triple("OpenAI", "https://api.openai.com/v1", ""),
         Triple("DeepSeek", "https://api.deepseek.com", ""),
         Triple("OpenRouter", "https://openrouter.ai/api/v1", ""),
-        Triple("智谱 AI", "https://open.bigmodel.cn/api/paas/v4", "")
+        Triple("智谱标准 API", "https://open.bigmodel.cn/api/paas/v4", ""),
+        Triple("智谱 Coding Plan", "https://open.bigmodel.cn/api/coding/paas/v4", "")
     )
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 14.dp),
@@ -868,7 +870,11 @@ private fun SettingsScreen(
         Text("API 配置", fontWeight = FontWeight.SemiBold)
         Text(
             if (settings.provider.contains("智谱")) {
-                "当前为智谱标准 API。标准 API Key 与 GLM Coding Plan Key 分开管理，不能混用；模型 ID 由你自己决定。"
+                if (settings.provider.contains("Coding")) {
+                    "当前为 GLM Coding Plan 专用接口。请使用 Coding Plan 页面生成的套餐 Key；模型 ID 由你自己决定。"
+                } else {
+                    "当前为智谱标准 API。请使用标准 API Keys 页面创建的密钥；模型 ID 由你自己决定。"
+                }
             } else {
                 "选择服务商只填写 API 地址；模型 ID 由你自己决定和填写。"
             },
@@ -899,7 +905,7 @@ private fun SettingsScreen(
             value = settings.endpoint,
             onValueChange = { onChange(settings.copy(endpoint = it)) },
             label = { Text("API 基础地址") },
-            supportingText = { Text("智谱标准 API：https://open.bigmodel.cn/api/paas/v4") },
+            supportingText = { Text("标准 API：/api/paas/v4 · Coding Plan：/api/coding/paas/v4") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
