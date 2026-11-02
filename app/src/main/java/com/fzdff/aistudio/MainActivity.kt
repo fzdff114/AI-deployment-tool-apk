@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -505,6 +507,7 @@ private fun SetupScreen(
         Triple("OpenAI", "https://api.openai.com/v1", "gpt-4.1-mini"),
         Triple("DeepSeek", "https://api.deepseek.com", "deepseek-chat"),
         Triple("OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-4.1-mini"),
+        Triple("智谱 AI", "https://open.bigmodel.cn/api/paas/v4", "glm-4.7-flash"),
         Triple("自定义", endpoint, model)
     )
     Column(
@@ -576,6 +579,10 @@ private fun ChatScreen(
     onToggleLocal: (Boolean) -> Unit,
     onSend: () -> Unit
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length, busy) {
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    }
     Column(modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -612,7 +619,8 @@ private fun ChatScreen(
             }
         } else {
             LazyColumn(
-                Modifier.weight(1f).fillMaxWidth(),
+                state = listState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
@@ -755,8 +763,20 @@ private fun ModelScreen(
                     Icon(Icons.Default.Memory, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(if (settings.hasLocalModel) modelFile else "尚未导入模型", fontWeight = FontWeight.SemiBold)
-                        Text(if (loaded) "运行中" else if (settings.hasLocalModel) "已导入 · 未加载" else "选择一个 .gguf 文件", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        Text(
+                            if (settings.hasLocalModel) modelFile else "尚未导入模型",
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            if (loaded) "运行中 · 本机推理" else if (settings.hasLocalModel) "已导入 · 未加载" else "选择一个 .gguf 文件",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                     if (loaded) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
                 }
@@ -786,6 +806,7 @@ private fun ModelScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreen(
     modifier: Modifier,
@@ -799,13 +820,18 @@ private fun SettingsScreen(
     status: String,
     error: String
 ) {
+    var showApiKey by remember { mutableStateOf(false) }
     val providers = listOf(
         Triple("OpenAI", "https://api.openai.com/v1", "gpt-4.1-mini"),
         Triple("DeepSeek", "https://api.deepseek.com", "deepseek-chat"),
-        Triple("OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-4.1-mini")
+        Triple("OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-4.1-mini"),
+        Triple("智谱 AI", "https://open.bigmodel.cn/api/paas/v4", "glm-4.7-flash")
     )
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("设置", fontSize = 23.sp, fontWeight = FontWeight.Bold)
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("设置", fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text("外观", fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             ThemeChoice("白蓝", "blue", settings.theme == "blue", Modifier.weight(1f)) { onChange(settings.copy(theme = "blue")) }
@@ -814,25 +840,83 @@ private fun SettingsScreen(
         }
         HorizontalDivider()
         Text("API 配置", fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            providers.forEach { p ->
-                FilterChip(
-                    selected = settings.provider == p.first,
-                    onClick = { onChange(settings.copy(provider = p.first, endpoint = p.second, model = p.third)) },
-                    label = { Text(p.first, fontSize = 12.sp) }
-                )
+        Text("选择服务商会自动填写常用地址和模型；也可以选择自定义。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        providers.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                row.forEach { p ->
+                    FilterChip(
+                        selected = settings.provider == p.first,
+                        onClick = { onChange(settings.copy(provider = p.first, endpoint = p.second, model = p.third)) },
+                        label = { Text(p.first, fontSize = 13.sp, maxLines = 1) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
-            FilterChip(selected = settings.provider == "自定义", onClick = { onChange(settings.copy(provider = "自定义")) }, label = { Text("自定义", fontSize = 12.sp) })
         }
-        OutlinedTextField(settings.endpoint, { onChange(settings.copy(endpoint = it)) }, label = { Text("API 地址") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(settings.model, { onChange(settings.copy(model = it)) }, label = { Text("模型 ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(apiKey, onApiKey, label = { Text("API Key") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+            FilterChip(
+                selected = settings.provider == "自定义",
+                onClick = { onChange(settings.copy(provider = "自定义")) },
+                label = { Text("自定义 API") }
+            )
+        }
+        OutlinedTextField(
+            value = settings.endpoint,
+            onValueChange = { onChange(settings.copy(endpoint = it)) },
+            label = { Text("API 基础地址") },
+            supportingText = { Text("例如智谱：https://open.bigmodel.cn/api/paas/v4") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = settings.model,
+            onValueChange = { onChange(settings.copy(model = it)) },
+            label = { Text("模型 ID") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = apiKey,
+            onValueChange = onApiKey,
+            label = { Text("API Key") },
+            placeholder = { Text("粘贴服务商控制台生成的完整 API Key") },
+            singleLine = true,
+            visualTransformation = if (showApiKey) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                TextButton(onClick = { showApiKey = !showApiKey }) {
+                    Text(if (showApiKey) "隐藏" else "显示")
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            "API Key 只保存在本机 Android Keystore 加密存储中。不要把密钥发给任何人。",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = onTest, enabled = !busy && apiKey.isNotBlank(), modifier = Modifier.weight(1f)) { Text(if (busy) "测试中…" else "测试连接") }
-            Button(onClick = onSave, modifier = Modifier.weight(1f)) { Text("保存配置") }
+            OutlinedButton(
+                onClick = onTest,
+                enabled = !busy && apiKey.isNotBlank() && settings.endpoint.isNotBlank() && settings.model.isNotBlank(),
+                modifier = Modifier.weight(1f).height(48.dp)
+            ) { Text(if (busy) "测试中…" else "测试连接") }
+            Button(
+                onClick = onSave,
+                enabled = apiKey.isNotBlank() && settings.endpoint.isNotBlank() && settings.model.isNotBlank(),
+                modifier = Modifier.weight(1f).height(48.dp)
+            ) { Text("保存配置") }
         }
-        if (status.isNotBlank()) Text(status, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
-        if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        if (status.isNotBlank()) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Text(status, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
+            }
+        }
+        if (error.isNotBlank()) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Text(error, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
+            }
+        }
         HorizontalDivider()
         Text("对话额度", fontWeight = FontWeight.SemiBold)
         Text("单次回复上限：${settings.maxTokens} tokens")
@@ -852,23 +936,35 @@ private fun SettingsScreen(
         TextButton(onClick = { onChange(settings.copy(sessionUsed = 0)) }) { Text("重置当前额度计数") }
         HorizontalDivider()
         Text("推理强度", fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             listOf("auto", "low", "medium", "high").forEach { value ->
-                FilterChip(selected = settings.reasoning == value, onClick = { onChange(settings.copy(reasoning = value)) }, label = { Text(when (value) {
-                    "auto" -> "自动"; "low" -> "低"; "medium" -> "中"; else -> "高"
-                }) })
+                FilterChip(
+                    selected = settings.reasoning == value,
+                    onClick = { onChange(settings.copy(reasoning = value)) },
+                    label = { Text(when (value) {
+                        "auto" -> "自动"; "low" -> "低"; "medium" -> "中"; else -> "高"
+                    }) }
+                )
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("向 API 发送 reasoning_effort")
-                Text("仅部分模型支持；不支持时请关闭。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (settings.provider.contains("智谱")) "发送智谱 thinking 参数" else "向 API 发送 reasoning_effort")
+                Text(
+                    if (settings.provider.contains("智谱")) "智谱接口使用 thinking.type；不同模型支持情况不同。" else "仅部分模型支持；不支持时请关闭。",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             Switch(checked = settings.sendReasoning, onCheckedChange = { onChange(settings.copy(sendReasoning = it)) })
         }
         HorizontalDivider()
         Text("隐私与存储", fontWeight = FontWeight.SemiBold)
-        Text("API Key 通过 Android Keystore 加密；聊天历史与 GGUF 模型存放在应用私有目录。卸载应用会删除本地数据。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "API Key 通过 Android Keystore 加密；聊天历史与 GGUF 模型存放在应用私有目录。卸载应用会删除本地数据。",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(18.dp))
     }
 }
