@@ -91,12 +91,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(sed -n 's/.*versionName = "\\([^"]*\\)".*/\\1/p' app/build.gradle.kts | head -n 1)
+          VERSION=$(awk -F'"' '/^[[:space:]]*versionName[[:space:]]*=/ { print $2; exit }' app/build.gradle.kts)
+          if [[ ! "$VERSION" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]; then
+            echo "::error::Could not read a valid app versionName from app/build.gradle.kts (value: '$VERSION'). Refusing to publish."
+            exit 1
+          fi
           TAG="v${VERSION}"
           APK="app/build/outputs/apk/debug/app-debug.apk"
           ASSET="AIStudio-${VERSION}-arm64-signed.apk"
+          echo "Publishing version ${VERSION} as ${ASSET}"
           test -s "$APK"
           cp "$APK" "$ASSET"
+          # Remove the malformed tag accidentally created by an earlier version parser.
+          if gh release view "v" >/dev/null 2>&1; then
+            gh release delete "v" --cleanup-tag --yes >/dev/null 2>&1 || true
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete-asset "$TAG" "AIStudio-${VERSION}-arm64.apk" --yes >/dev/null 2>&1 || true
             gh release delete-asset "$TAG" "app-debug.apk" --yes >/dev/null 2>&1 || true
