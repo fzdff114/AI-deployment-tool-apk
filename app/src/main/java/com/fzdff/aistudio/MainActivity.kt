@@ -858,7 +858,15 @@ private fun SettingsScreen(
         }
         HorizontalDivider()
         Text("API 配置", fontWeight = FontWeight.SemiBold)
-        Text("选择服务商只填写 API 地址；模型 ID 由你自己决定和填写。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            if (settings.provider.contains("智谱")) {
+                "当前为智谱标准 API。标准 API Key 与 GLM Coding Plan Key 分开管理，不能混用；模型 ID 由你自己决定。"
+            } else {
+                "选择服务商只填写 API 地址；模型 ID 由你自己决定和填写。"
+            },
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         providers.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 row.forEach { p ->
@@ -883,7 +891,7 @@ private fun SettingsScreen(
             value = settings.endpoint,
             onValueChange = { onChange(settings.copy(endpoint = it)) },
             label = { Text("API 基础地址") },
-            supportingText = { Text("例如智谱：https://open.bigmodel.cn/api/paas/v4") },
+            supportingText = { Text("智谱标准 API：https://open.bigmodel.cn/api/paas/v4") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
