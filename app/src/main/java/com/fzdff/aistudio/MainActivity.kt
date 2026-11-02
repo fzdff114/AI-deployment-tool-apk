@@ -115,7 +115,7 @@ private fun AIStudioApp() {
     }
 
     fun persistCurrentSession() {
-        val title = messages.firstOrNull { it.role == "user" }?.content?.replace("\\n", " ")?.take(32) ?: "新对话"
+        val title = messages.firstOrNull { it.role == "user" }?.content?.replace("\n", " ")?.take(32) ?: "新对话"
         val saved = ChatSession(currentSessionId, title, System.currentTimeMillis(), settings.sessionUsed, messages.toList())
         val oldIndex = sessions.indexOfFirst { it.id == currentSessionId }
         if (oldIndex >= 0) sessions[oldIndex] = saved else sessions.add(saved)
@@ -420,7 +420,7 @@ private fun AIStudioApp() {
                                             !detail.contains("HTTP 403")
                                         ) {
                                             try {
-                                                val reply = ApiClient.complete(
+                                                ApiClient.complete(
                                                     settings.copy(maxTokens = 16, reasoning = "auto", sendReasoning = false),
                                                     apiKey,
                                                     "请只回复 OK"
@@ -429,10 +429,10 @@ private fun AIStudioApp() {
                                                 workspaceStatus = "API 聊天连接成功。该服务未提供可用的 /models 列表接口；当前模型验证通过。"
                                                 errorText = ""
                                             } catch (chatError: Exception) {
-                                                errorText = "$detail\\n使用当前模型测试聊天也失败：${chatError.message ?: "未知错误"}"
+                                                errorText = "$detail\n使用当前模型测试聊天也失败：${chatError.message ?: "未知错误"}"
                                             }
                                         } else {
-                                            errorText = detail + if (settings.model.isNotBlank()) "\\n请确认 API Key 与接口产品匹配。" else "\\n若服务商不支持 GET /models，请先手动填写模型 ID。"
+                                            errorText = detail + if (settings.model.isNotBlank()) "\n请确认 API Key 与接口产品匹配。" else "\n若服务商不支持 GET /models，请先手动填写模型 ID。"
                                         }
                                     } finally { isBusy = false }
                                 }
