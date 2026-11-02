@@ -91,33 +91,33 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(awk -F'"' '/^[[:space:]]*versionName[[:space:]]*=/ { print $2; exit }' app/build.gradle.kts)
-          if [[ ! "$VERSION" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]; then
-            echo "::error::Could not read a valid app versionName from app/build.gradle.kts (value: '$VERSION'). Refusing to publish."
-            exit 1
-          fi
+          set -euo pipefail
+          VERSION=$(grep -m1 'versionName = "' app/build.gradle.kts | cut -d '"' -f2)
+          test -n "$VERSION"
           TAG="v${VERSION}"
           APK="app/build/outputs/apk/debug/app-debug.apk"
           ASSET="AIStudio-${VERSION}-arm64-signed.apk"
-          echo "Publishing version ${VERSION} as ${ASSET}"
           test -s "$APK"
           cp "$APK" "$ASSET"
-          # Remove the malformed tag accidentally created by an earlier version parser.
-          if gh release view "v" >/dev/null 2>&1; then
-            gh release delete "v" --cleanup-tag --yes >/dev/null 2>&1 || true
-          fi
+
+          # Remove an accidental empty-version release from earlier broken version parsing.
+          gh release delete v --yes --cleanup-tag >/dev/null 2>&1 || true
+
+          NOTES=$(printf '%s\\n' \
+            "Standalone Android ARM64 APK. Install directly on Android 9+ devices." \
+            "" \
+            "APK zip alignment and signing certificate have been verified in CI." \
+            "Certificate SHA-256: ${AI_STUDIO_APK_CERT_SHA256:-unknown}." \
+            "" \
+            "If Android reports an update/signature conflict, uninstall the previous build first. Configure the four persistent signing secrets in the README to keep the same signer across future versions.")
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete-asset "$TAG" "AIStudio-${VERSION}-arm64.apk" --yes >/dev/null 2>&1 || true
+            gh release delete-asset "$TAG" "AIStudio-${VERSION}-arm64-signed.apk" --yes >/dev/null 2>&1 || true
             gh release delete-asset "$TAG" "app-debug.apk" --yes >/dev/null 2>&1 || true
-            gh release upload "$TAG" "$ASSET" --clobber
+            gh release upload "$TAG" "$ASSET"
+            gh release edit "$TAG" --title "AI Studio ${VERSION}" --notes "$NOTES"
           else
-            NOTES=$(printf '%s\\n' \
-              "Standalone Android ARM64 APK. Install directly on Android 9+ devices." \
-              "" \
-              "APK zip alignment and signing certificate have been verified in CI." \
-              "Certificate SHA-256: ${AI_STUDIO_APK_CERT_SHA256:-unknown}." \
-              "" \
-              "If Android reports an update/signature conflict, uninstall the previous build first. After configuring the persistent signing secrets, future updates will use the same signing certificate.")
             gh release create "$TAG" "$ASSET" \
               --title "AI Studio ${VERSION}" \
               --notes "$NOTES"
