@@ -1,3 +1,13 @@
+val ciKeystorePath = System.getenv("AI_STUDIO_KEYSTORE_PATH")
+val ciStorePassword = System.getenv("AI_STUDIO_KEYSTORE_PASSWORD")
+val ciKeyAlias = System.getenv("AI_STUDIO_KEY_ALIAS")
+val ciKeyPassword = System.getenv("AI_STUDIO_KEY_PASSWORD")
+val hasCiSigning = !ciKeystorePath.isNullOrBlank() &&
+    !ciStorePassword.isNullOrBlank() &&
+    !ciKeyAlias.isNullOrBlank() &&
+    !ciKeyPassword.isNullOrBlank() &&
+    file(ciKeystorePath).exists()
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -24,12 +34,29 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasCiSigning) {
+            create("stableCi") {
+                storeFile = file(ciKeystorePath!!)
+                storePassword = ciStorePassword
+                keyAlias = ciKeyAlias
+                keyPassword = ciKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
+            if (hasCiSigning) {
+                signingConfig = signingConfigs.getByName("stableCi")
+            }
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
         release {
+            if (hasCiSigning) {
+                signingConfig = signingConfigs.getByName("stableCi")
+            }
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
