@@ -269,7 +269,7 @@ private fun AIStudioApp() {
                                             try {
                                                 val assistantIndex = messages.lastIndex
                                                 if (useLocal) {
-                                                    val prompt = buildLocalPrompt(messages.dropLast(1))
+                                                    val prompt = buildLocalPrompt(messages.dropLast(1), settings.localModelPath)
                                                     val result = withContext(Dispatchers.IO) {
                                                         engine?.nativeGenerate(prompt, settings.maxTokens, 0.7f)
                                                             ?: "ERROR: 本地模型尚未加载"
@@ -449,16 +449,29 @@ private fun AIStudioApp() {
     }
 }
 
-private fun buildLocalPrompt(messages: List<ChatMessage>): String {
+private fun buildLocalPrompt(messages: List<ChatMessage>, modelPath: String): String {
     val recent = messages.filter { it.content.isNotBlank() }.takeLast(24)
-    return buildString {
-        append("以下是一个对话。请用用户使用的语言回答，尽量清晰、准确。\n")
-        recent.forEach { message ->
-            append(if (message.role == "user") "\n### 用户：\n" else "\n### 助手：\n")
-            append(message.content.take(12000))
-            append("\n")
+    val system = "你是 AI Studio 的智能助手。请用用户使用的语言回答，准确、清晰，并直接完成用户要求。"
+    return if (modelPath.contains("phi", ignoreCase = true)) {
+        buildString {
+            append("<|system|>\n").append(system).append("<|end|>\n")
+            recent.forEach { message ->
+                val role = if (message.role == "user") "user" else "assistant"
+                append("<|").append(role).append("|>\n")
+                append(message.content.take(12000))
+                append("<|end|>\n")
+            }
+            append("<|assistant|>\n")
         }
-        append("\n### 助手：\n")
+    } else {
+        buildString {
+            append("系统：").append(system).append("\n")
+            recent.forEach { message ->
+                append(if (message.role == "user") "用户：" else "助手：")
+                append(message.content.take(12000)).append("\n")
+            }
+            append("助手：")
+        }
     }
 }
 
@@ -588,7 +601,7 @@ private fun ChatScreen(
                 Spacer(Modifier.height(8.dp))
                 Text("可以聊天、分析问题、编写代码或规划项目。", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(24.dp))
-                listOf("帮我编写一个 Android 应用", "解释一段代码并找出问题", "设计一个 Minecraft 基岩版附加包").forEach { suggestion ->
+                listOf("帮我解释一个复杂概念", "帮我检查并修复这段代码", "帮我制定一个学习计划").forEach { suggestion ->
                     OutlinedCard(
                         Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onInput(suggestion) },
                         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
