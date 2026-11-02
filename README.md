@@ -29,7 +29,9 @@
 
 智谱官方 HTTP 文档说明，通用 API 可直接使用 `Authorization: Bearer YOUR_API_KEY`；同时也提供由 `id.secret` API Key 生成的 HS256 JWT 鉴权方式。本应用先尝试直接 API Key，遇到 401 后再尝试 JWT。见 [智谱 HTTP API 调用文档](https://docs.bigmodel.cn/cn/guide/develop/http/introduction)。
 
-若两种方式都返回 401，需检查该密钥是否属于当前智谱 API 产品、是否被禁用，以及是否完整复制。不要将 API Key 发送给他人，也不要提交到 GitHub。
+特别注意：智谱标准 API Key 与 GLM Coding Plan Key 分开管理、互不通用。标准通用 API 使用 `/api/paas/v4`；Coding Plan 使用专用的 `/api/coding/paas/v4`，且官方说明仅限指定工具与产品环境。当前 AI Studio 的智谱预设针对标准 API，不会把 Coding Plan Key 当成标准 Key 使用。
+
+若两种鉴权方式都返回 401，需检查你创建 Key 的具体页面是否为「标准 API Keys」，该 Key 是否被禁用，以及是否完整复制。不要将 API Key 发送给他人，也不要提交到 GitHub。
 
 ## 获取 APK
 每次版本更新到 main 分支后，GitHub Actions 自动构建 APK 并发布到 GitHub Releases：
