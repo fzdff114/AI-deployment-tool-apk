@@ -86,14 +86,20 @@ object AppStore {
 
     fun loadSettings(context: Context): AppSettings {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        // One-time migration: remove only the model IDs that older builds silently
+        // inserted as defaults. Do not clear them on every app launch, because the user
+        // may intentionally choose one of these model IDs.
+        if (!p.getBoolean("model_default_migration_done", false)) {
+            val savedModel = p.getString("model", "") ?: ""
+            if (savedModel in setOf("gpt-4.1-mini", "deepseek-chat", "openai/gpt-4.1-mini", "glm-4.7-flash")) {
+                p.edit().putString("model", "").apply()
+            }
+            p.edit().putBoolean("model_default_migration_done", true).apply()
+        }
         return AppSettings(
             provider = p.getString("provider", "OpenAI") ?: "OpenAI",
             endpoint = p.getString("endpoint", "https://api.openai.com/v1") ?: "https://api.openai.com/v1",
-            model = (p.getString("model", "") ?: "").let { saved ->
-                // These values were silently prefilled by older app versions as examples,
-                // not chosen by the user. Clear them once so users choose their own model ID.
-                if (saved in setOf("gpt-4.1-mini", "deepseek-chat", "openai/gpt-4.1-mini", "glm-4.7-flash")) "" else saved
-            },
+            model = p.getString("model", "") ?: "",
             theme = p.getString("theme", "blue") ?: "blue",
             reasoning = p.getString("reasoning", "medium") ?: "medium",
             sendReasoning = p.getBoolean("send_reasoning", false),
