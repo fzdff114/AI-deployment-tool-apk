@@ -103,7 +103,7 @@ jobs:
           # Remove an accidental empty-version release from earlier broken version parsing.
           gh release delete v --yes --cleanup-tag >/dev/null 2>&1 || true
 
-          NOTES=$(printf '%s\\n' \
+          NOTES=$(printf '%s\n' \
             "Standalone Android ARM64 APK. Install directly on Android 9+ devices." \
             "" \
             "APK zip alignment and signing certificate have been verified in CI." \
