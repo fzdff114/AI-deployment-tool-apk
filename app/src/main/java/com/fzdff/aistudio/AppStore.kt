@@ -152,3 +152,61 @@ object AppStore {
         saveSettings(context, s.copy(sessionUsed = 0))
     }
 }
+
+
+data class ChatSession(
+    val id: Long,
+    val title: String,
+    val updatedAt: Long,
+    val usedTokens: Int,
+    val messages: List<ChatMessage>
+)
+
+object ChatHistoryStore {
+    private const val PREFS = "ai_studio"
+    private const val KEY = "chat_sessions"
+
+    fun load(context: Context): List<ChatSession> {
+        return try {
+            val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]") ?: "[]"
+            val array = JSONArray(raw)
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val messageArray = item.optJSONArray("messages") ?: JSONArray()
+                val parsed = (0 until messageArray.length()).mapNotNull { i ->
+                    val message = messageArray.optJSONObject(i) ?: return@mapNotNull null
+                    val role = message.optString("role")
+                    val text = message.optString("content")
+                    if (role !in listOf("user", "assistant") || text.isBlank()) null
+                    else ChatMessage(role, text, message.optLong("id", i.toLong()))
+                }
+                ChatSession(
+                    id = item.optLong("id"),
+                    title = item.optString("title", "新对话"),
+                    updatedAt = item.optLong("updatedAt"),
+                    usedTokens = item.optInt("usedTokens"),
+                    messages = parsed
+                )
+            }.sortedByDescending { it.updatedAt }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun save(context: Context, sessions: List<ChatSession>) {
+        val array = JSONArray()
+        sessions.sortedByDescending { it.updatedAt }.take(50).forEach { session ->
+            val messageArray = JSONArray()
+            session.messages.takeLast(120).forEach { message ->
+                messageArray.put(JSONObject().put("id", message.id).put("role", message.role).put("content", message.content))
+            }
+            array.put(JSONObject()
+                .put("id", session.id)
+                .put("title", session.title)
+                .put("updatedAt", session.updatedAt)
+                .put("usedTokens", session.usedTokens)
+                .put("messages", messageArray))
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, array.toString()).apply()
+    }
+}
