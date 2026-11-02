@@ -168,9 +168,10 @@ private fun AIStudioApp() {
                         updateSettings(next)
                         apiKey = key
                         SecureStore.save(context, key)
+                        AppStore.markSetupDone(context)
                         tab = AppTab.CHAT
                     },
-                    onLocalOnly = { tab = AppTab.CHAT }
+                    onLocalOnly = { AppStore.markSetupDone(context); tab = AppTab.CHAT }
                 )
             } else {
                 Scaffold(
@@ -336,6 +337,8 @@ private fun AIStudioApp() {
                             settings = settings,
                             loaded = localLoaded,
                             busy = isBusy,
+                            status = workspaceStatus,
+                            error = errorText,
                             onContext = { updateSettings(settings.copy(contextSize = it)) },
                             onImport = { uri ->
                                 scope.launch {
@@ -715,6 +718,8 @@ private fun ModelScreen(
     settings: AppSettings,
     loaded: Boolean,
     busy: Boolean,
+    status: String,
+    error: String,
     onContext: (Int) -> Unit,
     onImport: (Uri) -> Unit,
     onLoad: () -> Unit,
@@ -727,6 +732,8 @@ private fun ModelScreen(
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("本地模型", fontSize = 23.sp, fontWeight = FontWeight.Bold)
         Text("直接在本机运行 GGUF 模型。推理引擎已编译到 APK 内，不需要 Termux、Python 或单独的控制台。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (status.isNotBlank()) Text(status, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+        if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
