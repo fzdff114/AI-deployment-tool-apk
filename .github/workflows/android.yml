@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write
 
+# Avoid parallel runs racing to overwrite the same versioned APK release asset.
+concurrency:
+  group: ai-studio-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -65,10 +70,12 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/apk-signature.txt"
           CERT_SHA256=$(grep -m1 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/apk-signature.txt" | awk '{print $NF}')
           test -n "$CERT_SHA256"
+          echo "AI_STUDIO_APK_CERT_SHA256=$CERT_SHA256" >> "$GITHUB_ENV"
           {
             echo "### APK signature verification"
             echo "- Signature verification: passed"
             echo "- Signing certificate SHA-256: `$CERT_SHA256`"
+            echo "- APK contains a valid Android APK signing block; no separate CA certificate installation is required."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload APK artifact
@@ -95,5 +102,5 @@ jobs:
           else
             gh release create "$TAG" "$ASSET" \
               --title "AI Studio ${VERSION}" \
-              --notes "Standalone Android ARM64 APK. Install directly on Android 9+ devices. See the repository README for features and setup."
+              --notes "Standalone Android ARM64 APK. Install directly on Android 9+ devices.\n\nAPK signature verified by apksigner. Certificate SHA-256: ${AI_STUDIO_APK_CERT_SHA256:-unknown}.\n\nA clean install is required when switching from a build signed with a different certificate. See README for persistent signing setup."
           fi
