@@ -9,6 +9,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.Base64
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 object ApiClient {
     private val client = OkHttpClient.Builder()
@@ -94,16 +97,65 @@ object ApiClient {
         return body.toString()
     }
 
-    private fun request(settings: AppSettings, apiKey: String, body: String): Request {
-        val key = normalizedKey(apiKey)
-        require(key.isNotBlank()) { "请先填写 API Key / Token" }
+    private fun authCandidates(apiKey: String): List<String> {
+        val raw = normalizedKey(apiKey)
+        if (raw.isBlank()) throw IllegalArgumentException("请先填写 API Key / Token")
+
+        val candidates = mutableListOf(raw)
+        val split = raw.indexOf('.')
+        if (split in 1 until raw.lastIndex) {
+            val keyId = raw.substring(0, split)
+            val secret = raw.substring(split + 1)
+            try {
+                // BigModel supports both the direct API Key and its documented HS256 JWT form.
+                // Retry with JWT only if the direct API Key gets a 401.
+                val now = System.currentTimeMillis()
+                fun b64(value: ByteArray) = Base64.getUrlEncoder().withoutPadding().encodeToString(value)
+                val header = b64("""{"alg":"HS256","sign_type":"SIGN"}""".toByteArray(Charsets.UTF_8))
+                val payload = b64(
+                    JSONObject()
+                        .put("api_key", keyId)
+                        .put("exp", now + 60L * 60L * 1000L)
+                        .put("timestamp", now)
+                        .toString().toByteArray(Charsets.UTF_8)
+                )
+                val signingInput = "$header.$payload"
+                val mac = Mac.getInstance("HmacSHA256")
+                mac.init(SecretKeySpec(secret.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+                val signature = b64(mac.doFinal(signingInput.toByteArray(Charsets.UTF_8)))
+                candidates.add("$signingInput.$signature")
+            } catch (_: Exception) {
+                // Keep direct-key authentication available even if JWT creation fails.
+            }
+        }
+        return candidates.distinct()
+    }
+
+    private fun request(settings: AppSettings, bearerToken: String, body: String): Request {
         return Request.Builder()
             .url(chatUrl(settings))
-            .header("Authorization", "Bearer $key")
+            .header("Authorization", "Bearer $bearerToken")
             .header("Content-Type", "application/json")
             .header("Accept", "text/event-stream, application/json")
             .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
+    }
+
+    private fun executeAuthenticated(settings: AppSettings, apiKey: String, body: String): okhttp3.Response {
+        val candidates = authCandidates(apiKey)
+        var lastResponse: okhttp3.Response? = null
+        candidates.forEachIndexed { index, token ->
+            val response = client.newCall(request(settings, token, body)).execute()
+            if (response.code == 401 && index < candidates.lastIndex) {
+                // The official API accepts either a direct key or JWT. Try the alternate
+                // documented form once for id.secret keys before reporting an auth failure.
+                response.close()
+            } else {
+                lastResponse?.close()
+                return response
+            }
+        }
+        return lastResponse ?: throw IllegalStateException("API 鉴权请求未能建立")
     }
 
     suspend fun streamChat(
@@ -117,8 +169,8 @@ object ApiClient {
                 .takeLast(40)
                 .forEach { put(JSONObject().put("role", it.role).put("content", it.content)) }
         }
-        val req = request(settings, apiKey, requestBody(settings, payload, true))
-        client.newCall(req).execute().use { response ->
+        val payloadBody = requestBody(settings, payload, true)
+        executeAuthenticated(settings, apiKey, payloadBody).use { response ->
             if (!response.isSuccessful) {
                 val raw = response.body?.string().orEmpty()
                 throw IllegalStateException(errorMessage(response.code, raw, response.message))
@@ -157,8 +209,8 @@ object ApiClient {
     suspend fun complete(settings: AppSettings, apiKey: String, prompt: String): String =
         withContext(Dispatchers.IO) {
             val messages = JSONArray().put(JSONObject().put("role", "user").put("content", prompt))
-            val req = request(settings, apiKey, requestBody(settings, messages, false))
-            client.newCall(req).execute().use { response ->
+            val payloadBody = requestBody(settings, messages, false)
+            executeAuthenticated(settings, apiKey, payloadBody).use { response ->
                 val raw = response.body?.string().orEmpty()
                 if (!response.isSuccessful) throw IllegalStateException(errorMessage(response.code, raw, response.message))
                 val root = JSONObject(raw)
