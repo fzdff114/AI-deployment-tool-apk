@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Send
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
@@ -73,7 +75,14 @@ private fun AIStudioApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var settings by remember { mutableStateOf(AppStore.loadSettings(context)) }
-    val messages = remember { mutableStateListOf<ChatMessage>().apply { addAll(AppStore.loadMessages(context)) } }
+    val sessions = remember { mutableStateListOf<ChatSession>().apply { addAll(ChatHistoryStore.load(context)) } }
+    var currentSessionId by remember { mutableStateOf(sessions.firstOrNull()?.id ?: System.currentTimeMillis()) }
+    val messages = remember {
+        mutableStateListOf<ChatMessage>().apply {
+            addAll(sessions.firstOrNull()?.messages ?: AppStore.loadMessages(context))
+        }
+    }
+    var showHistory by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf(if (AppStore.isConfigured(context)) AppTab.CHAT else null) }
     var apiKey by remember { mutableStateOf(SecureStore.read(context)) }
     var isBusy by remember { mutableStateOf(false) }
@@ -90,6 +99,39 @@ private fun AIStudioApp() {
     fun updateSettings(next: AppSettings) {
         settings = next
         AppStore.saveSettings(context, next)
+    }
+
+    fun persistCurrentSession() {
+        val title = messages.firstOrNull { it.role == "user" }?.content?.replace("\\n", " ")?.take(32) ?: "新对话"
+        val saved = ChatSession(currentSessionId, title, System.currentTimeMillis(), settings.sessionUsed, messages.toList())
+        val oldIndex = sessions.indexOfFirst { it.id == currentSessionId }
+        if (oldIndex >= 0) sessions[oldIndex] = saved else sessions.add(saved)
+        val sorted = sessions.sortedByDescending { it.updatedAt }.take(50)
+        sessions.clear()
+        sessions.addAll(sorted)
+        ChatHistoryStore.save(context, sessions)
+        AppStore.saveMessages(context, messages)
+    }
+
+    fun startNewChat() {
+        persistCurrentSession()
+        messages.clear()
+        currentSessionId = System.currentTimeMillis()
+        updateSettings(settings.copy(sessionUsed = 0))
+        persistCurrentSession()
+        errorText = ""
+    }
+
+    fun openSession(session: ChatSession) {
+        persistCurrentSession()
+        messages.clear()
+        messages.addAll(session.messages)
+        currentSessionId = session.id
+        updateSettings(settings.copy(sessionUsed = session.usedTokens))
+        persistCurrentSession()
+        showHistory = false
+        tab = AppTab.CHAT
+        errorText = ""
     }
 
     val theme = when (settings.theme) {
@@ -153,12 +195,12 @@ private fun AIStudioApp() {
                             },
                             actions = {
                                 if (tab == AppTab.CHAT) {
-                                    IconButton(onClick = {
-                                        messages.clear()
-                                        AppStore.saveMessages(context, emptyList())
-                                        updateSettings(settings.copy(sessionUsed = 0))
-                                        errorText = ""
-                                    }) { Icon(Icons.Default.Add, contentDescription = "新对话") }
+                                    IconButton(onClick = { showHistory = true }) {
+                                        Icon(Icons.Default.History, contentDescription = "历史对话")
+                                    }
+                                    IconButton(onClick = { startNewChat() }) {
+                                        Icon(Icons.Default.Add, contentDescription = "新对话")
+                                    }
                                 }
                                 if (tab != AppTab.SETTINGS) {
                                     IconButton(onClick = { tab = AppTab.SETTINGS }) {
@@ -218,7 +260,7 @@ private fun AIStudioApp() {
                                         errorText = ""
                                         messages.add(ChatMessage("user", text))
                                         messages.add(ChatMessage("assistant", ""))
-                                        AppStore.saveMessages(context, messages)
+                                        persistCurrentSession()
                                         scope.launch {
                                             isBusy = true
                                             try {
@@ -244,7 +286,7 @@ private fun AIStudioApp() {
                                                 }
                                                 val added = (messages[assistantIndex].content.length / 3).coerceAtLeast(1)
                                                 updateSettings(settings.copy(sessionUsed = settings.sessionUsed + added))
-                                                AppStore.saveMessages(context, messages)
+                                                persistCurrentSession()
                                             } catch (e: Exception) {
                                                 errorText = e.message ?: "请求失败"
                                                 if (messages.isNotEmpty() && messages.last().role == "assistant" && messages.last().content.isBlank()) {
@@ -252,7 +294,7 @@ private fun AIStudioApp() {
                                                 }
                                             } finally {
                                                 isBusy = false
-                                                AppStore.saveMessages(context, messages)
+                                                persistCurrentSession()
                                             }
                                         }
                                     }
@@ -362,6 +404,40 @@ private fun AIStudioApp() {
                         )
                         null -> Unit
                     }
+                }
+                if (showHistory) {
+                    AlertDialog(
+                        onDismissRequest = { showHistory = false },
+                        title = { Text("历史对话") },
+                        text = {
+                            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                                val savedSessions = sessions.filter { it.messages.isNotEmpty() }
+                                if (savedSessions.isEmpty()) {
+                                    Text("暂时没有历史对话。聊天记录会保存在本机。")
+                                } else {
+                                    savedSessions.forEach { session ->
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                            TextButton(onClick = { openSession(session) }, modifier = Modifier.weight(1f)) {
+                                                Text(session.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                            IconButton(onClick = {
+                                                sessions.removeAll { it.id == session.id }
+                                                ChatHistoryStore.save(context, sessions)
+                                                if (currentSessionId == session.id) {
+                                                    messages.clear()
+                                                    currentSessionId = System.currentTimeMillis()
+                                                    updateSettings(settings.copy(sessionUsed = 0))
+                                                    persistCurrentSession()
+                                                }
+                                            }) { Icon(Icons.Default.DeleteOutline, contentDescription = "删除对话") }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = { TextButton(onClick = { showHistory = false }) { Text("关闭") } },
+                        dismissButton = { TextButton(onClick = { startNewChat(); showHistory = false }) { Text("新对话") } }
+                    )
                 }
             }
         }
