@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -21,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -50,12 +52,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -65,6 +70,7 @@ import java.io.FileOutputStream
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         setContent { AIStudioApp() }
     }
 }
@@ -77,6 +83,8 @@ private enum class AppTab(val label: String) {
 @Composable
 private fun AIStudioApp() {
     val context = LocalContext.current
+    val density = LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
     val scope = rememberCoroutineScope()
     var settings by remember { mutableStateOf(AppStore.loadSettings(context)) }
     val sessions = remember { mutableStateListOf<ChatSession>().apply { addAll(ChatHistoryStore.load(context)) } }
@@ -220,6 +228,7 @@ private fun AIStudioApp() {
                         )
                     },
                     bottomBar = {
+                        if (!imeVisible) {
                         NavigationBar(containerColor = theme.surface) {
                             NavigationBarItem(
                                 selected = tab == AppTab.CHAT, onClick = { tab = AppTab.CHAT },
@@ -237,6 +246,7 @@ private fun AIStudioApp() {
                                 selected = tab == AppTab.SETTINGS, onClick = { tab = AppTab.SETTINGS },
                                 icon = { Icon(Icons.Default.Palette, null) }, label = { Text("设置") }
                             )
+                        }
                         }
                     }
                 ) { padding ->
@@ -504,10 +514,10 @@ private fun SetupScreen(
     var key by remember { mutableStateOf(initialKey) }
     var showKey by remember { mutableStateOf(false) }
     val providers = listOf(
-        Triple("OpenAI", "https://api.openai.com/v1", "gpt-4.1-mini"),
-        Triple("DeepSeek", "https://api.deepseek.com", "deepseek-chat"),
-        Triple("OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-4.1-mini"),
-        Triple("智谱 AI", "https://open.bigmodel.cn/api/paas/v4", "glm-4.7-flash"),
+        Triple("OpenAI", "https://api.openai.com/v1", ""),
+        Triple("DeepSeek", "https://api.deepseek.com", ""),
+        Triple("OpenRouter", "https://openrouter.ai/api/v1", ""),
+        Triple("智谱 AI", "https://open.bigmodel.cn/api/paas/v4", ""),
         Triple("自定义", endpoint, model)
     )
     Column(
@@ -533,7 +543,7 @@ private fun SetupScreen(
                                 selected = provider == item.first,
                                 onClick = {
                                     provider = item.first
-                                    if (item.first != "自定义") { endpoint = item.second; model = item.third }
+                                    if (item.first != "自定义") { endpoint = item.second; model = "" }
                                 },
                                 label = { Text(item.first) },
                                 modifier = Modifier.weight(1f)
@@ -580,10 +590,11 @@ private fun ChatScreen(
     onSend: () -> Unit
 ) {
     val listState = rememberLazyListState()
+    val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length, busy) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
-    Column(modifier.fillMaxSize()) {
+    Column(modifier.fillMaxSize().imePadding()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -639,7 +650,7 @@ private fun ChatScreen(
 
         Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
             Row(
-                Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
                 OutlinedTextField(
@@ -647,10 +658,26 @@ private fun ChatScreen(
                     placeholder = { Text("发送消息…") },
                     modifier = Modifier.weight(1f),
                     maxLines = 5,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Send
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (!busy && input.isNotBlank()) {
+                                onSend()
+                                keyboardController?.hide()
+                            }
+                        }
+                    ),
                     shape = RoundedCornerShape(24.dp)
                 )
                 Spacer(Modifier.width(8.dp))
-                FilledIconButton(onClick = onSend, enabled = !busy && input.isNotBlank(), modifier = Modifier.size(52.dp)) {
+                FilledIconButton(
+                    onClick = { onSend(); keyboardController?.hide() },
+                    enabled = !busy && input.isNotBlank(),
+                    modifier = Modifier.size(52.dp)
+                ) {
                     Icon(Icons.Default.Send, contentDescription = "发送")
                 }
             }
@@ -822,10 +849,10 @@ private fun SettingsScreen(
 ) {
     var showApiKey by remember { mutableStateOf(false) }
     val providers = listOf(
-        Triple("OpenAI", "https://api.openai.com/v1", "gpt-4.1-mini"),
-        Triple("DeepSeek", "https://api.deepseek.com", "deepseek-chat"),
-        Triple("OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-4.1-mini"),
-        Triple("智谱 AI", "https://open.bigmodel.cn/api/paas/v4", "glm-4.7-flash")
+        Triple("OpenAI", "https://api.openai.com/v1", ""),
+        Triple("DeepSeek", "https://api.deepseek.com", ""),
+        Triple("OpenRouter", "https://openrouter.ai/api/v1", ""),
+        Triple("智谱 AI", "https://open.bigmodel.cn/api/paas/v4", "")
     )
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 14.dp),
@@ -840,13 +867,13 @@ private fun SettingsScreen(
         }
         HorizontalDivider()
         Text("API 配置", fontWeight = FontWeight.SemiBold)
-        Text("选择服务商会自动填写常用地址和模型；也可以选择自定义。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("选择服务商只填写 API 地址；模型 ID 由你自己决定和填写。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         providers.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 row.forEach { p ->
                     FilterChip(
                         selected = settings.provider == p.first,
-                        onClick = { onChange(settings.copy(provider = p.first, endpoint = p.second, model = p.third)) },
+                        onClick = { onChange(settings.copy(provider = p.first, endpoint = p.second, model = "")) },
                         label = { Text(p.first, fontSize = 13.sp, maxLines = 1) },
                         modifier = Modifier.weight(1f)
                     )
@@ -872,7 +899,8 @@ private fun SettingsScreen(
         OutlinedTextField(
             value = settings.model,
             onValueChange = { onChange(settings.copy(model = it)) },
-            label = { Text("模型 ID") },
+            label = { Text("模型 ID（自行填写）") },
+            placeholder = { Text("输入你选择的模型 ID") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
