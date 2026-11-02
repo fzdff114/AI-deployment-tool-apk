@@ -32,8 +32,45 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Configure persistent APK signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$ANDROID_KEYSTORE_PASSWORD" && -n "$ANDROID_KEY_ALIAS" && -n "$ANDROID_KEY_PASSWORD" ]]; then
+            KEYSTORE="$RUNNER_TEMP/ai-studio-upload.jks"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+            test -s "$KEYSTORE"
+            echo "AI_STUDIO_KEYSTORE_PATH=$KEYSTORE" >> "$GITHUB_ENV"
+            echo "AI_STUDIO_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "AI_STUDIO_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "AI_STUDIO_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "Persistent APK signing keystore configured." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Persistent signing secrets are not configured. This build will use the Gradle debug certificate; updates signed with a different debug certificate may require uninstalling the older app first."
+            echo "No persistent signing secrets configured; using the automatically generated debug certificate. Add the four ANDROID_* signing secrets to enable stable in-place updates." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Build standalone APK
         run: gradle :app:assembleDebug --stacktrace
+
+      - name: Verify APK signature
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          test -s "$APK"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/apk-signature.txt"
+          CERT_SHA256=$(grep -m1 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/apk-signature.txt" | awk '{print $NF}')
+          test -n "$CERT_SHA256"
+          {
+            echo "### APK signature verification"
+            echo "- Signature verification: passed"
+            echo "- Signing certificate SHA-256: `$CERT_SHA256`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
