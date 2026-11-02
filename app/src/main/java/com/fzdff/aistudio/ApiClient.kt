@@ -41,6 +41,7 @@ object ApiClient {
         return when {
             // Zhipu's official OpenAI-compatible API uses /api/paas/v4/chat/completions.
             base.endsWith("/api/paas/v4", ignoreCase = true) -> "$base/chat/completions"
+            base.endsWith("/api/coding/paas/v4", ignoreCase = true) -> "$base/chat/completions"
             // OpenAI-style versioned base URLs already include their API version.
             Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> "$base/chat/completions"
             // DeepSeek's default base URL does not include /v1.
@@ -71,7 +72,7 @@ object ApiClient {
         val codeSuffix = if (providerCode.isNotBlank() && providerCode != code.toString()) "（服务商代码：$providerCode）" else ""
         return when (code) {
             400 -> "请求参数错误（HTTP 400）：$detail"
-            401 -> "服务端拒绝了 API 身份验证（HTTP 401）：$detail。本应用已先尝试原始 API Key；对于 id.secret 格式，也自动尝试了智谱文档提供的 JWT 鉴权。此错误不是模型名称导致的。请核对密钥是否属于「智谱标准 API Keys」而不是「GLM Coding Plan」：两类 Key 分开管理、不能混用；当前地址是标准 API 的 /api/paas/v4。还需检查 Key 是否被禁用或复制不完整。"
+            401 -> "服务端拒绝了 API 身份验证（HTTP 401）：$detail。本应用已先尝试原始 API Key；对于 id.secret 格式，也自动尝试 JWT 鉴权。此错误不是模型名称导致的。请检查 API 地址与密钥是否属于同一产品：智谱标准 API 使用 /api/paas/v4，GLM Coding Plan 使用 /api/coding/paas/v4；两者不可混配。还需检查 Key 是否被禁用或复制不完整。"
             403 -> "API 权限不足（HTTP 403）：$detail。请检查模型权限、账户余额和 IP 白名单。"
             404 -> "接口或模型不存在（HTTP 404）：$detail。请检查 API 基础地址和模型 ID。"
             429 -> "请求过于频繁或额度不足（HTTP 429）：$detail。请检查并发限制、账户额度和速率限制。"
