@@ -91,25 +91,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+          VERSION=$(sed -n 's/.*versionName = "\\([^"]*\\)".*/\\1/p' app/build.gradle.kts | head -n 1)
           TAG="v${VERSION}"
           APK="app/build/outputs/apk/debug/app-debug.apk"
           ASSET="AIStudio-${VERSION}-arm64-signed.apk"
           test -s "$APK"
           cp "$APK" "$ASSET"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release delete-asset "$TAG" app-debug.apk --yes >/dev/null 2>&1 || true
             gh release upload "$TAG" "$ASSET" --clobber
           else
-            NOTES="$(cat <<EOF
-Standalone Android ARM64 APK. Install directly on Android 9+ devices.
-
-APK zip alignment and signing certificate have been verified in CI.
-Certificate SHA-256: ${AI_STUDIO_APK_CERT_SHA256:-unknown}.
-
-If Android reports an update/signature conflict, uninstall the previous build first. After configuring the persistent signing secrets, future updates will use the same signing certificate.
-EOF
-)"
+            NOTES=$(printf '%s\\n' \
+              "Standalone Android ARM64 APK. Install directly on Android 9+ devices." \
+              "" \
+              "APK zip alignment and signing certificate have been verified in CI." \
+              "Certificate SHA-256: ${AI_STUDIO_APK_CERT_SHA256:-unknown}." \
+              "" \
+              "If Android reports an update/signature conflict, uninstall the previous build first. After configuring the persistent signing secrets, future updates will use the same signing certificate.")
             gh release create "$TAG" "$ASSET" \
               --title "AI Studio ${VERSION}" \
               --notes "$NOTES"
