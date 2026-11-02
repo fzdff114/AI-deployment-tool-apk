@@ -106,6 +106,7 @@ private fun AIStudioApp() {
     var workspaceName by rememberSaveable { mutableStateOf("generated-file.md") }
     var workspaceOutput by remember { mutableStateOf("") }
     var workspaceStatus by remember { mutableStateOf("") }
+    var apiModels by remember { mutableStateOf<List<String>>(emptyList()) }
     var engine by remember { mutableStateOf<LocalModelEngine?>(null) }
 
     fun updateSettings(next: AppSettings) {
@@ -407,14 +408,18 @@ private fun AIStudioApp() {
                                 scope.launch {
                                     isBusy = true
                                     errorText = ""
+                                    workspaceStatus = ""
                                     try {
-                                        val testSettings = settings.copy(maxTokens = 32)
-                                        val result = ApiClient.complete(testSettings, apiKey, "请只回复：连接成功")
-                                        workspaceStatus = "连接成功：${result.take(40)}"
-                                    } catch (e: Exception) { errorText = e.message ?: "连接测试失败" }
-                                    finally { isBusy = false }
+                                        val found = ApiClient.fetchModels(settings, apiKey)
+                                        apiModels = found
+                                        workspaceStatus = "连接成功 · 获取到 ${found.size} 个模型。你可以从模型列表选择，也可以手动填写。"
+                                    } catch (e: Exception) {
+                                        errorText = (e.message ?: "连接测试失败") + if (settings.model.isNotBlank()) "\\n你仍可手动尝试当前模型 ID 发起聊天。" else "\\n请确认服务商支持 GET /models；不支持时可手动填写模型 ID 后直接测试聊天。"
+                                    } finally { isBusy = false }
                                 }
                             },
+                            availableModels = apiModels,
+                            onSelectModel = { selected -> updateSettings(settings.copy(model = selected)); workspaceStatus = "已选择模型：$selected" },
                             busy = isBusy,
                             status = workspaceStatus,
                             error = errorText
@@ -834,11 +839,14 @@ private fun SettingsScreen(
     onSave: () -> Unit,
     onChange: (AppSettings) -> Unit,
     onTest: () -> Unit,
+    availableModels: List<String>,
+    onSelectModel: (String) -> Unit,
     busy: Boolean,
     status: String,
     error: String
 ) {
     var showApiKey by remember { mutableStateOf(false) }
+    var showModelPicker by remember { mutableStateOf(false) }
     val providers = listOf(
         Triple("OpenAI", "https://api.openai.com/v1", ""),
         Triple("DeepSeek", "https://api.deepseek.com", ""),
@@ -925,14 +933,40 @@ private fun SettingsScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
                 onClick = onTest,
-                enabled = !busy && apiKey.isNotBlank() && settings.endpoint.isNotBlank() && settings.model.isNotBlank(),
+                enabled = !busy && apiKey.isNotBlank() && settings.endpoint.isNotBlank(),
                 modifier = Modifier.weight(1f).height(48.dp)
-            ) { Text(if (busy) "测试中…" else "测试连接") }
+            ) { Text(if (busy) "测试中…" else "测试接口 / 获取模型") }
             Button(
                 onClick = onSave,
-                enabled = apiKey.isNotBlank() && settings.endpoint.isNotBlank() && settings.model.isNotBlank(),
+                enabled = apiKey.isNotBlank() && settings.endpoint.isNotBlank(),
                 modifier = Modifier.weight(1f).height(48.dp)
             ) { Text("保存配置") }
+        }
+        if (availableModels.isNotEmpty()) {
+            OutlinedButton(
+                onClick = { showModelPicker = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("从接口返回的模型列表选择（${availableModels.size}）")
+            }
+        }
+        if (showModelPicker) {
+            AlertDialog(
+                onDismissRequest = { showModelPicker = false },
+                title = { Text("选择模型 ID") },
+                text = {
+                    Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                        availableModels.forEach { modelId ->
+                            TextButton(
+                                onClick = { onSelectModel(modelId); showModelPicker = false },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text(modelId, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start) }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showModelPicker = false }) { Text("关闭") }
+                }
+            )
         }
         if (status.isNotBlank()) {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
