@@ -144,19 +144,17 @@ object ApiClient {
 
     private fun executeAuthenticated(settings: AppSettings, apiKey: String, body: String): okhttp3.Response {
         val candidates = authCandidates(apiKey)
-        var lastResponse: okhttp3.Response? = null
-        candidates.forEachIndexed { index, token ->
+        for ((index, token) in candidates.withIndex()) {
             val response = client.newCall(request(settings, token, body)).execute()
             if (response.code == 401 && index < candidates.lastIndex) {
                 // The official API accepts either a direct key or JWT. Try the alternate
                 // documented form once for id.secret keys before reporting an auth failure.
                 response.close()
-            } else {
-                lastResponse?.close()
-                return response
+                continue
             }
+            return response
         }
-        return lastResponse ?: throw IllegalStateException("API 鉴权请求未能建立")
+        throw IllegalStateException("API 鉴权请求未能建立")
     }
 
     suspend fun streamChat(
