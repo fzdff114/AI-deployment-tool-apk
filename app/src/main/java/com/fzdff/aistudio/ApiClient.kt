@@ -157,6 +157,67 @@ object ApiClient {
         throw IllegalStateException("API 鉴权请求未能建立")
     }
 
+    private fun modelsUrl(settings: AppSettings): String {
+        val base = settings.endpoint.trim().trimEnd('/')
+        require(base.startsWith("https://") || base.startsWith("http://")) { "API 地址格式不正确" }
+        return when {
+            base.endsWith("/chat/completions", ignoreCase = true) ->
+                base.substringBeforeLast("/chat/completions") + "/models"
+            Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> "$base/models"
+            base.endsWith("/api/paas/v4", ignoreCase = true) -> "$base/models"
+            base.endsWith("/api/coding/paas/v4", ignoreCase = true) -> "$base/models"
+            settings.provider.contains("DeepSeek", ignoreCase = true) -> "$base/models"
+            base.endsWith("/openai", ignoreCase = true) -> "$base/models"
+            else -> "$base/v1/models"
+        }
+    }
+
+    private fun modelsRequest(settings: AppSettings, token: String): Request =
+        Request.Builder()
+            .url(modelsUrl(settings))
+            .header("Authorization", "Bearer $token")
+            .header("Accept", "application/json")
+            .get()
+            .build()
+
+    suspend fun fetchModels(settings: AppSettings, apiKey: String): List<String> =
+        withContext(Dispatchers.IO) {
+            val candidates = authCandidates(apiKey)
+            var finalResponse: okhttp3.Response? = null
+            for ((index, token) in candidates.withIndex()) {
+                val response = client.newCall(modelsRequest(settings, token)).execute()
+                if (response.code == 401 && index < candidates.lastIndex) {
+                    response.close()
+                    continue
+                }
+                finalResponse = response
+                break
+            }
+            val response = finalResponse ?: throw IllegalStateException("模型列表请求未能建立")
+            response.use {
+                val raw = it.body?.string().orEmpty()
+                if (!it.isSuccessful) {
+                    throw IllegalStateException(errorMessage(it.code, raw, it.message))
+                }
+                val root = JSONObject(raw)
+                val data = root.optJSONArray("data")
+                    ?: root.optJSONObject("data")?.optJSONArray("models")
+                    ?: throw IllegalStateException("接口没有返回标准模型列表。你仍可以手动填写模型 ID。")
+                val result = (0 until data.length()).mapNotNull { i ->
+                    val item = data.optJSONObject(i) ?: return@mapNotNull null
+                    item.optString("id").takeIf { id -> id.isNotBlank() && id != "null" }
+                }.distinct().sorted()
+                if (result.isEmpty()) throw IllegalStateException("接口返回了空模型列表。你可以手动填写模型 ID。")
+                result
+            }
+        }
+
+    suspend fun testConnection(settings: AppSettings, apiKey: String): String =
+        withContext(Dispatchers.IO) {
+            val models = fetchModels(settings, apiKey)
+            "连接成功 · 获取到 ${models.size} 个模型"
+        }
+
     suspend fun streamChat(
         settings: AppSettings,
         apiKey: String,
