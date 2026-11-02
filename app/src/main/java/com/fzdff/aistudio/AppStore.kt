@@ -118,8 +118,14 @@ object AppStore {
     }
 
     fun isConfigured(context: Context): Boolean {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (p.getBoolean("setup_done", false)) return true
         val s = loadSettings(context)
         return s.endpoint.isNotBlank() && s.model.isNotBlank() && SecureStore.read(context).isNotBlank()
+    }
+
+    fun markSetupDone(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("setup_done", true).apply()
     }
 
     fun loadMessages(context: Context): List<ChatMessage> {
