@@ -67,6 +67,7 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -v 4 "$APK"
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/apk-signature.txt"
           CERT_SHA256=$(grep -m1 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/apk-signature.txt" | awk '{print $NF}')
           test -n "$CERT_SHA256"
@@ -93,14 +94,23 @@ jobs:
           VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
           TAG="v${VERSION}"
           APK="app/build/outputs/apk/debug/app-debug.apk"
-          ASSET="AIStudio-${VERSION}-arm64.apk"
+          ASSET="AIStudio-${VERSION}-arm64-signed.apk"
           test -s "$APK"
           cp "$APK" "$ASSET"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete-asset "$TAG" app-debug.apk --yes >/dev/null 2>&1 || true
             gh release upload "$TAG" "$ASSET" --clobber
           else
+            NOTES="$(cat <<EOF
+Standalone Android ARM64 APK. Install directly on Android 9+ devices.
+
+APK zip alignment and signing certificate have been verified in CI.
+Certificate SHA-256: ${AI_STUDIO_APK_CERT_SHA256:-unknown}.
+
+If Android reports an update/signature conflict, uninstall the previous build first. After configuring the persistent signing secrets, future updates will use the same signing certificate.
+EOF
+)"
             gh release create "$TAG" "$ASSET" \
               --title "AI Studio ${VERSION}" \
-              --notes "Standalone Android ARM64 APK. Install directly on Android 9+ devices.\n\nAPK signature verified by apksigner. Certificate SHA-256: ${AI_STUDIO_APK_CERT_SHA256:-unknown}.\n\nA clean install is required when switching from a build signed with a different certificate. See README for persistent signing setup."
+              --notes "$NOTES"
           fi
