@@ -1,3 +1,9 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
 val ciKeystorePath = System.getenv("AI_STUDIO_KEYSTORE_PATH")
 val ciStorePassword = System.getenv("AI_STUDIO_KEYSTORE_PASSWORD")
 val ciKeyAlias = System.getenv("AI_STUDIO_KEY_ALIAS")
@@ -8,11 +14,6 @@ val hasCiSigning = !ciKeystorePath.isNullOrBlank() &&
     !ciKeyPassword.isNullOrBlank() &&
     file(ciKeystorePath).exists()
 
-plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
-}
 
 android {
     namespace = "com.fzdff.aistudio"
