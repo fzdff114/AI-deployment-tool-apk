@@ -2,39 +2,53 @@
 
 独立原生 Android AI 客户端。无需 Termux、Python、浏览器控制台或常驻本地服务器。
 
-## v1.1.3 更新
-- 智谱 API 鉴权：先按官方方式使用原始 API Key；若服务端返回 401，且密钥为 `id.secret` 格式，再自动尝试智谱文档提供的 HS256 JWT 方式
-- API Key 输入会清理首尾空格、引号和可选的 Bearer 前缀
-- 仍然收到 401 时，明确提示鉴权失败与模型 ID 无关，并保留服务端原始错误信息
-- 服务商预设只填写 API 地址，不再自动替用户选择模型
-- 清除旧版自动填入的示例模型 ID；模型 ID 由使用者自己输入
-- 移除聊天首页预设问题卡片
-- 聊天输入框适配 Android 输入法：键盘弹出时隐藏底部导航、输入区域随键盘上移、输入法发送键可以发送消息
-- Activity 与 Manifest 均设置 adjustResize，避免输入框被输入法遮挡
+## v1.1.4 更新
+- 新增智谱「标准 API」和「GLM Coding Plan」两种独立连接预设，分别使用自己的 API 基础地址
+- API 配置增加在线模型列表读取：输入 Key 后可先测试接口、获取模型 ID 列表，再由使用者自行选择；不会自动选模型
+- 测试连接不再强制要求先填模型 ID；如果服务商不支持 `GET /models`，仍可手动填写模型 ID 后直接聊天
+- 聊天输入框继续适配 Android IME：adjustResize、imePadding、隐藏导航栏与输入法 Send 动作
+- CI 增加 APK 签名证书验证，并在 GitHub Actions 摘要中显示 SHA-256 指纹
+- 支持通过 GitHub Actions Secrets 配置固定 Android 签名密钥，便于后续版本覆盖安装升级
 
-## 功能
-- OpenAI 兼容 API：OpenAI、DeepSeek、OpenRouter、智谱 AI、自定义端点
-- SSE 流式聊天、本地历史对话、单次回复额度、会话额度与推理强度
-- 三套主题：白蓝、米白、黑白
-- 工作区：生成代码/文本并导出文件
-- GGUF 模型导入与本机 llama.cpp CPU 推理（arm64-v8a，模型运行在应用进程内）
+## 云端 API
+- OpenAI 兼容 API：OpenAI、DeepSeek、OpenRouter、智谱标准 API、GLM Coding Plan、自定义端点
+- SSE 流式聊天、多轮上下文、本地历史对话
+- 单次回复额度、会话额度、推理强度
+- API 配置支持测试连接、获取服务端模型列表、手动输入模型 ID
 - API Key 使用 Android Keystore AES-GCM 加密存储
 
-## 智谱 AI 配置
-选择「智谱 AI」只会填入 API 基础地址：
+### 智谱 API 类型
+标准 API 基础地址：
 `https://open.bigmodel.cn/api/paas/v4`
 
-模型 ID 不会自动选择，请从智谱当前模型目录中自行选择并填写。请求路径为：
-`https://open.bigmodel.cn/api/paas/v4/chat/completions`
+GLM Coding Plan 基础地址：
+`https://open.bigmodel.cn/api/coding/paas/v4`
 
-智谱官方 HTTP 文档说明，通用 API 可直接使用 `Authorization: Bearer YOUR_API_KEY`；同时也提供由 `id.secret` API Key 生成的 HS256 JWT 鉴权方式。本应用先尝试直接 API Key，遇到 401 后再尝试 JWT。见 [智谱 HTTP API 调用文档](https://docs.bigmodel.cn/cn/guide/develop/http/introduction)。
+两种端点对应不同套餐，必须使用匹配的凭据。标准 API Key 不要填进 Coding Plan 端点，反之亦然。具体以智谱当前控制台和官方文档为准。
 
-特别注意：智谱标准 API Key 与 GLM Coding Plan Key 分开管理、互不通用。标准通用 API 使用 `/api/paas/v4`；Coding Plan 使用专用的 `/api/coding/paas/v4`，且官方说明仅限指定工具与产品环境。当前 AI Studio 的智谱预设针对标准 API，不会把 Coding Plan Key 当成标准 Key 使用。
+智谱官方 HTTP 文档列出两种鉴权方式：直接使用完整 API Key，或用 `id.secret` 生成 HS256 JWT。应用优先直接发送 API Key；收到 401 后，对于符合格式的 Key 自动尝试 JWT。官方文档：[HTTP API 调用](https://docs.bigmodel.cn/cn/guide/develop/http/introduction)。
 
-若两种鉴权方式都返回 401，需检查你创建 Key 的具体页面是否为「标准 API Keys」，该 Key 是否被禁用，以及是否完整复制。不要将 API Key 发送给他人，也不要提交到 GitHub。
+如果两种方式都返回 401，应用会显示服务端返回的错误信息。模型 ID 错误通常表现为模型或资源不存在，而不是身份验证失败；不要在未验证的情况下把 401 当成模型名称错误。
+
+## 本地模型
+从应用的「模型」页面导入兼容的 GGUF 文件，加载后即可在聊天中切换到本地推理。模型不会被打包进 APK。内存需求由模型大小、量化方式、上下文长度决定；建议先从小型 Q4 量化模型和 2048/4096 上下文开始。
+
+## Android APK 签名与安装
+Android APK 必须带有签名证书。Gradle 构建的 APK 会嵌入签名证书，Android 安装器会自动验证，不需要把 PEM 证书单独安装到手机系统。
+
+GitHub Actions 在上传 Release 前会运行 `apksigner verify --print-certs`，验证 APK 签名并记录证书 SHA-256 指纹。
+
+默认 CI 回退到 Gradle 自动生成的 Debug 签名密钥。这种密钥在不同 GitHub Runner 上可能不同：全新安装可用，但覆盖升级旧版本时可能出现签名不一致。要启用稳定签名：
+1. 使用项目维护者提供的私有签名密钥包。
+2. 打开 GitHub 仓库 Settings → Secrets and variables → Actions。
+3. 新建以下 4 个 Repository secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。
+4. `ANDROID_KEYSTORE_BASE64` 填入私有密钥包中 base64 文件的整行内容；其余 3 项按密钥配置说明填写。
+5. 重新运行 GitHub Actions。后续版本会使用同一签名身份。
+
+不要将 `.jks`、密码或 base64 密钥内容提交到公开 GitHub 仓库。丢失私钥后，不能继续用相同身份签署升级包。
 
 ## 获取 APK
-每次版本更新到 main 分支后，GitHub Actions 自动构建 APK 并发布到 GitHub Releases：
+每次版本更新到 main 分支后，GitHub Actions 自动构建 APK、验证签名，并发布到 GitHub Releases：
 [GitHub Releases 下载中心](https://github.com/fzdff114/AI-deployment-tool-apk/releases)
 
 ## 构建
@@ -44,8 +58,5 @@ gradle :app:assembleDebug
 ```
 产物：`app/build/outputs/apk/debug/app-debug.apk`
 
-## 本地模型
-从应用的「模型」页面导入兼容的 GGUF 文件，加载后即可在聊天中切换到本地推理。模型不会被打包进 APK。内存需求由模型大小、量化方式、上下文长度决定；建议先从小型 Q4 量化模型和 2048/4096 上下文开始。
-
 ## 安全说明
-API Key 仅保存在本机 Keystore 加密后的应用私有偏好中。请求仅发送到你配置的 API 地址。请勿将密钥提交到 Git。应用尚未进行正式安全审计。
+API Key 仅保存在本机 Keystore 加密后的应用私有偏好中。请求仅发送到你配置的 API 地址。请勿将 API Key 提交到 Git。应用尚未进行正式安全审计。
