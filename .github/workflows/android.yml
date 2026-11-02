@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -34,10 +34,27 @@ jobs:
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
       - name: Build standalone APK
         run: gradle :app:assembleDebug --stacktrace
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: AIStudio-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish APK to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+          TAG="v${VERSION}"
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          ASSET="AIStudio-${VERSION}-arm64.apk"
+          test -s "$APK"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK#$ASSET" --clobber
+          else
+            gh release create "$TAG" "$APK#$ASSET" \
+              --title "AI Studio ${VERSION}" \
+              --notes "Standalone Android ARM64 APK. Install directly on Android 9+ devices. See the repository README for features and setup."
+          fi
