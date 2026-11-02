@@ -410,31 +410,37 @@ private fun AIStudioApp() {
                                     errorText = ""
                                     workspaceStatus = ""
                                     try {
+                                        if (settings.model.isBlank()) {
+                                            throw IllegalArgumentException("先填写模型 ID，再测试聊天接口。")
+                                        }
+                                        val reply = ApiClient.complete(
+                                            settings.copy(maxTokens = 16, reasoning = "auto", sendReasoning = false),
+                                            apiKey,
+                                            "请只回复 OK"
+                                        )
+                                        workspaceStatus = "聊天接口连接成功 · 模型已返回：${reply.take(40)}"
+                                    } catch (e: Exception) {
+                                        errorText = e.message ?: "聊天接口测试失败"
+                                    } finally {
+                                        isBusy = false
+                                    }
+                                }
+                            },
+                            onFetchModels = {
+                                scope.launch {
+                                    isBusy = true
+                                    errorText = ""
+                                    workspaceStatus = ""
+                                    try {
                                         val found = ApiClient.fetchModels(settings, apiKey)
                                         apiModels = found
-                                        workspaceStatus = "连接成功 · 获取到 ${found.size} 个模型。你可以从模型列表选择，也可以手动填写。"
+                                        workspaceStatus = "已获取 ${found.size} 个模型。请自行选择或继续手动填写模型 ID。"
                                     } catch (e: Exception) {
-                                        val detail = e.message ?: "连接测试失败"
-                                        if (settings.model.isNotBlank() &&
-                                            !detail.contains("HTTP 401") &&
-                                            !detail.contains("HTTP 403")
-                                        ) {
-                                            try {
-                                                ApiClient.complete(
-                                                    settings.copy(maxTokens = 16, reasoning = "auto", sendReasoning = false),
-                                                    apiKey,
-                                                    "请只回复 OK"
-                                                )
-                                                apiModels = emptyList()
-                                                workspaceStatus = "API 聊天连接成功。该服务未提供可用的 /models 列表接口；当前模型验证通过。"
-                                                errorText = ""
-                                            } catch (chatError: Exception) {
-                                                errorText = "$detail\n使用当前模型测试聊天也失败：${chatError.message ?: "未知错误"}"
-                                            }
-                                        } else {
-                                            errorText = detail + if (settings.model.isNotBlank()) "\n请确认 API Key 与接口产品匹配。" else "\n若服务商不支持 GET /models，请先手动填写模型 ID。"
-                                        }
-                                    } finally { isBusy = false }
+                                        errorText = (e.message ?: "模型列表获取失败") +
+                                            "\n部分兼容接口不开放 GET /models；你仍可以手动填写模型 ID。"
+                                    } finally {
+                                        isBusy = false
+                                    }
                                 }
                             },
                             availableModels = apiModels,
@@ -859,6 +865,7 @@ private fun SettingsScreen(
     onSave: () -> Unit,
     onChange: (AppSettings) -> Unit,
     onTest: () -> Unit,
+    onFetchModels: () -> Unit,
     availableModels: List<String>,
     onSelectModel: (String) -> Unit,
     busy: Boolean,
@@ -958,15 +965,20 @@ private fun SettingsScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
                 onClick = onTest,
-                enabled = !busy && apiKey.isNotBlank() && settings.endpoint.isNotBlank(),
+                enabled = !busy && apiKey.isNotBlank() && settings.endpoint.isNotBlank() && settings.model.isNotBlank(),
                 modifier = Modifier.weight(1f).height(48.dp)
-            ) { Text(if (busy) "测试中…" else "连接并拉取模型") }
+            ) { Text(if (busy) "测试中…" else "测试当前模型") }
             Button(
                 onClick = onSave,
                 enabled = apiKey.isNotBlank() && settings.endpoint.isNotBlank(),
                 modifier = Modifier.weight(1f).height(48.dp)
             ) { Text("保存配置") }
         }
+        OutlinedButton(
+            onClick = onFetchModels,
+            enabled = !busy && apiKey.isNotBlank() && settings.endpoint.isNotBlank(),
+            modifier = Modifier.fillMaxWidth().height(46.dp)
+        ) { Text(if (busy) "正在读取模型…" else "获取服务商模型列表") }
         if (availableModels.isNotEmpty()) {
             OutlinedButton(
                 onClick = { showModelPicker = true },
