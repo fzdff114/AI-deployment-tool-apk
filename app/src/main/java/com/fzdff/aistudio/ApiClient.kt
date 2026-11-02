@@ -21,12 +21,12 @@ object ApiClient {
         .callTimeout(240, TimeUnit.SECONDS)
         .build()
 
-    private fun normalizedKey(value: String): String =
-        value.trim()
-            .removeSurrounding("\"")
-            .removeSurrounding("'")
-            .replace(Regex("^(?i)Bearer\\s+"), "")
-            .trim()
+    private fun normalizedKey(value: String): String {
+        val trimmed = value.trim().removeSurrounding("\"").removeSurrounding("'").trim()
+        return if (trimmed.startsWith("Bearer ", ignoreCase = true)) {
+            trimmed.substringAfter(' ').trim()
+        } else trimmed
+    }
 
     private fun chatUrl(settings: AppSettings): String {
         val base = settings.endpoint.trim().trimEnd('/')
@@ -71,7 +71,7 @@ object ApiClient {
         val codeSuffix = if (providerCode.isNotBlank() && providerCode != code.toString()) "（服务商代码：$providerCode）" else ""
         return when (code) {
             400 -> "请求参数错误（HTTP 400）：$detail"
-            401 -> "API Key 验证失败（HTTP 401）：$detail。请在对应服务商控制台重新复制完整 API Key；不要使用网页登录令牌、其他平台的 Key 或只复制密钥的一部分。"
+            401 -> "服务端拒绝了 API 身份验证（HTTP 401）：$detail。本应用已先尝试原始 API Key；对于 id.secret 格式，也自动尝试了智谱文档提供的 JWT 鉴权。此错误不是模型名称导致的。请核对密钥是否属于当前 API 产品/端点、是否已被禁用，以及是否完整复制。"
             403 -> "API 权限不足（HTTP 403）：$detail。请检查模型权限、账户余额和 IP 白名单。"
             404 -> "接口或模型不存在（HTTP 404）：$detail。请检查 API 基础地址和模型 ID。"
             429 -> "请求过于频繁或额度不足（HTTP 429）：$detail。请检查并发限制、账户额度和速率限制。"
@@ -103,7 +103,8 @@ object ApiClient {
 
         val candidates = mutableListOf(raw)
         val split = raw.indexOf('.')
-        if (split in 1 until raw.lastIndex) {
+        val secondDot = if (split >= 0) raw.indexOf('.', split + 1) else -1
+        if (split in 1 until raw.lastIndex && secondDot == -1) {
             val keyId = raw.substring(0, split)
             val secret = raw.substring(split + 1)
             try {
