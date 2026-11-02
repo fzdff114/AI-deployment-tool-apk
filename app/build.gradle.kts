@@ -25,8 +25,8 @@ android {
         applicationId = "com.fzdff.aistudio"
         minSdk = 28
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.1.4"
+        versionCode = 7
+        versionName = "1.1.5"
         ndk { abiFilters += listOf("arm64-v8a") }
         externalNativeBuild {
             cmake {
