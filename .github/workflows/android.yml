@@ -51,10 +51,12 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           ASSET="AIStudio-${VERSION}-arm64.apk"
           test -s "$APK"
+          cp "$APK" "$ASSET"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK#$ASSET" --clobber
+            gh release delete-asset "$TAG" app-debug.apk --yes >/dev/null 2>&1 || true
+            gh release upload "$TAG" "$ASSET" --clobber
           else
-            gh release create "$TAG" "$APK#$ASSET" \
+            gh release create "$TAG" "$ASSET" \
               --title "AI Studio ${VERSION}" \
               --notes "Standalone Android ARM64 APK. Install directly on Android 9+ devices. See the repository README for features and setup."
           fi
