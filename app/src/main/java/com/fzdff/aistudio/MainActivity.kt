@@ -666,7 +666,7 @@ private fun ChatScreen(
 
         Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
                 OutlinedTextField(
