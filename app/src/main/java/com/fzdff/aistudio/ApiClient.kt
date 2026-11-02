@@ -19,7 +19,11 @@ object ApiClient {
         .build()
 
     private fun normalizedKey(value: String): String =
-        value.trim().replace(Regex("^(?i)Bearer\\s+"), "").trim()
+        value.trim()
+            .removeSurrounding("\"")
+            .removeSurrounding("'")
+            .replace(Regex("^(?i)Bearer\\s+"), "")
+            .trim()
 
     private fun chatUrl(settings: AppSettings): String {
         val base = settings.endpoint.trim().trimEnd('/')
@@ -27,29 +31,48 @@ object ApiClient {
             "API 地址格式不正确：请填写 https:// 或 http:// 开头的 API 基础地址"
         }
         require(settings.model.isNotBlank()) { "模型 ID 不能为空" }
+
         if (base.endsWith("/chat/completions", ignoreCase = true)) return base
+
         val provider = settings.provider.lowercase()
         return when {
-            base.endsWith("/v1", ignoreCase = true) -> "$base/chat/completions"
+            // Zhipu's official OpenAI-compatible API uses /api/paas/v4/chat/completions.
+            base.endsWith("/api/paas/v4", ignoreCase = true) -> "$base/chat/completions"
+            // OpenAI-style versioned base URLs already include their API version.
+            Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> "$base/chat/completions"
+            // DeepSeek's default base URL does not include /v1.
             provider.contains("deepseek") -> "$base/chat/completions"
+            // Some custom gateways expose the OpenAI-compatible route directly under /openai.
+            base.endsWith("/openai", ignoreCase = true) -> "$base/chat/completions"
             else -> "$base/v1/chat/completions"
         }
     }
 
     private fun errorMessage(code: Int, raw: String, fallback: String): String {
-        val detail = try {
+        var detail = raw.take(800).ifBlank { fallback }
+        var providerCode = ""
+        try {
             val root = JSONObject(raw)
-            root.optJSONObject("error")?.let { e ->
-                e.optString("message").ifBlank { e.optString("detail") }
-            }?.takeIf { it.isNotBlank() }
-                ?: root.optString("message").takeIf { it.isNotBlank() }
-        } catch (_: Exception) { null } ?: raw.take(800).ifBlank { fallback }
+            providerCode = root.optString("code")
+            val nested = root.optJSONObject("error")
+            detail = sequenceOf(
+                nested?.optString("message"),
+                root.optString("message"),
+                nested?.optString("detail"),
+                root.optString("detail")
+            ).firstOrNull { !it.isNullOrBlank() && it != "null" } ?: detail
+        } catch (_: Exception) {
+            // Preserve non-JSON gateway error text.
+        }
+
+        val codeSuffix = if (providerCode.isNotBlank() && providerCode != code.toString()) "（服务商代码：$providerCode）" else ""
         return when (code) {
-            401 -> "API Key / Token 无效或未获授权（HTTP 401）。请确认密钥属于当前服务商、没有多余空格，并检查是否误填了访问令牌。服务端信息：$detail"
-            403 -> "API 拒绝访问（HTTP 403）。请检查密钥权限、模型访问权限或账户余额。服务端信息：$detail"
-            404 -> "接口或模型不存在（HTTP 404）。请检查 API 地址是否为兼容接口基础地址，以及模型 ID 是否准确。服务端信息：$detail"
-            429 -> "请求过于频繁或额度不足（HTTP 429）。请检查服务商限额和余额。服务端信息：$detail"
-            else -> "API 请求失败（HTTP $code）：$detail"
+            400 -> "请求参数错误（HTTP 400）：$detail"
+            401 -> "API Key 验证失败（HTTP 401）：$detail。请在对应服务商控制台重新复制完整 API Key；不要使用网页登录令牌、其他平台的 Key 或只复制密钥的一部分。"
+            403 -> "API 权限不足（HTTP 403）：$detail。请检查模型权限、账户余额和 IP 白名单。"
+            404 -> "接口或模型不存在（HTTP 404）：$detail。请检查 API 基础地址和模型 ID。"
+            429 -> "请求过于频繁或额度不足（HTTP 429）：$detail。请检查并发限制、账户额度和速率限制。"
+            else -> "API 请求失败（HTTP $code）$codeSuffix：$detail"
         }
     }
 
@@ -59,8 +82,14 @@ object ApiClient {
             .put("messages", messages)
             .put("stream", stream)
             .put("max_tokens", settings.maxTokens.coerceIn(1, 8192))
+
         if (settings.sendReasoning && settings.reasoning != "auto") {
-            body.put("reasoning_effort", settings.reasoning)
+            if (settings.provider.contains("智谱")) {
+                // BigModel v4 expects its own thinking object, not OpenAI reasoning_effort.
+                body.put("thinking", JSONObject().put("type", "enabled"))
+            } else {
+                body.put("reasoning_effort", settings.reasoning)
+            }
         }
         return body.toString()
     }
@@ -118,11 +147,10 @@ object ApiClient {
                     received = true
                     onChunk(content)
                 }
-                if (choice.optString("finish_reason") == "length" && !received) {
-                    throw IllegalStateException("模型只返回了推理或非文本内容。请关闭 reasoning_effort，或换用支持文本聊天的模型。")
-                }
             }
-            if (!received) throw IllegalStateException("服务器已连接，但没有返回可显示的文本。请检查模型 ID、服务商的 OpenAI 兼容接口，以及模型是否支持 /chat/completions。")
+            if (!received) throw IllegalStateException(
+                "服务器已连接，但没有返回可显示的文本。请检查模型 ID、模型是否支持 /chat/completions，以及是否需要关闭推理模式。"
+            )
         }
     }
 
