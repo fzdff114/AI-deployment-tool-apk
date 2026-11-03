@@ -70,6 +70,7 @@ object ApiClient {
                 base.endsWith("/api/paas/v4", true) -> "$base/chat/completions"
                 base.endsWith("/api/coding/paas/v4", true) -> "$base/chat/completions"
                 base.endsWith("/openai", true) -> "$base/chat/completions"
+                settings.provider.contains("DeepSeek", true) -> "$base/chat/completions"
                 else -> "$base/v1/chat/completions"
             }
         }
@@ -92,6 +93,7 @@ object ApiClient {
                 base.endsWith("/api/paas/v4", true) -> "$base/models"
                 base.endsWith("/api/coding/paas/v4", true) -> "$base/models"
                 base.endsWith("/openai", true) -> "$base/models"
+                settings.provider.contains("DeepSeek", true) -> "$base/models"
                 else -> "$base/v1/models"
             }
         }
