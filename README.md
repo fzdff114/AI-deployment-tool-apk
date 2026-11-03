@@ -3,10 +3,12 @@
 独立原生 Android AI 客户端。无需 Termux、Python、浏览器控制台或常驻本地服务器。
 
 ## v1.2.0 更新
-- 将云端 API 抽象为三类协议适配器：OpenAI Chat Completions 兼容、Anthropic Messages、Google Gemini Generate Content
+- 将云端 API 抽象为四类协议适配器：OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Google Gemini Generate Content
 - 增加 Claude 与 Gemini 原生接口；分别使用 `x-api-key + anthropic-version` 和 `x-goog-api-key`，不再强行套用 Bearer 格式
-- OpenAI 兼容协议支持 OpenAI、DeepSeek、OpenRouter、智谱、Ollama、LM Studio、vLLM 及兼容网关
-- 三类协议均支持流式聊天、非流式请求、模型列表读取和聊天连接测试
+- 增加 OpenAI Responses API 请求与事件流解析
+- OpenAI 兼容协议覆盖 OpenAI 兼容端点、DeepSeek、OpenRouter、智谱、Groq、Mistral、xAI、Together、SiliconFlow、阿里云百炼、Ollama、LM Studio、vLLM 等
+- 四类协议均支持流式聊天、非流式请求；支持的服务商可读取模型列表并执行真实聊天连通性测试
+- 增加自定义认证请求头名称和前缀，兼容 `Authorization`、`x-api-key`、`x-goog-api-key` 及无认证本地服务
 - 增加协议选择器；模型 ID 仍由用户自行填写，也可通过模型列表自行选择
 - 改进协议级错误信息、模型列表接口路径和多轮消息格式
 
@@ -41,9 +43,11 @@
 - **Anthropic**：使用 `POST /v1/messages`、`x-api-key` 与 `anthropic-version` 请求头。基础地址通常为 `https://api.anthropic.com`。
 - **Gemini**：使用 `generateContent` / `streamGenerateContent`，通过 `x-goog-api-key` 传递密钥。基础地址通常为 `https://generativelanguage.googleapis.com/v1beta`。
 
+自定义 API 可设置协议、基础 URL、模型 ID、认证请求头名称和前缀。认证头设置为 `none` 时可连接无鉴权的本地或局域网 API（例如自行配置的 Ollama 服务）。服务商预设只填入常用地址与协议，不会代替使用者选择模型 ID。
+
 选择服务商预设只会填入协议和常用 API 地址，不会自动替用户选择模型。模型 ID 可以手动填写，也可以点击「获取服务商模型列表」后从返回列表中选择。部分服务商或代理不开放模型列表接口，此时可直接手动填写模型 ID。
 
-「OpenAI 兼容」不是万能协议；若服务商只提供专有 API、Azure 部署路径、特殊签名或额外自定义请求头，必须使用该服务商的兼容端点，或后续添加专用适配器。
+协议兼容并不等于支持所有厂商的每一项功能。当前通用聊天层主要面向文本多轮对话；工具调用、图像/音频/视频输入、JSON Schema、Azure 特殊部署路径、OAuth、签名算法和各厂商专有参数，仍需相应的专用适配器或后续扩展。自定义认证头可覆盖常见自定义网关的鉴权，但不会自动实现任意厂商的签名协议。
 - 本地历史对话、单次回复额度、会话额度、推理强度
 
 
