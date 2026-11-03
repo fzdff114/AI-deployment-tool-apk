@@ -539,6 +539,7 @@ private fun SetupScreen(
     onLocalOnly: () -> Unit
 ) {
     var provider by remember { mutableStateOf(initial.provider) }
+    var apiProtocol by remember { mutableStateOf(initial.apiProtocol) }
     var endpoint by remember { mutableStateOf(initial.endpoint) }
     var model by remember { mutableStateOf(initial.model) }
     var key by remember { mutableStateOf(initialKey) }
@@ -549,6 +550,9 @@ private fun SetupScreen(
         Triple("OpenRouter", "https://openrouter.ai/api/v1", ""),
         Triple("智谱标准 API", "https://open.bigmodel.cn/api/paas/v4", ""),
         Triple("智谱 Coding Plan", "https://open.bigmodel.cn/api/coding/paas/v4", ""),
+        Triple("Anthropic Claude", "https://api.anthropic.com", ""),
+        Triple("Google Gemini", "https://generativelanguage.googleapis.com/v1beta", ""),
+        Triple("Ollama", "http://localhost:11434/v1", ""),
         Triple("自定义", endpoint, model)
     )
     Column(
@@ -574,6 +578,11 @@ private fun SetupScreen(
                                 selected = provider == item.first,
                                 onClick = {
                                     provider = item.first
+                                    apiProtocol = when {
+                                        item.first.contains("Claude") -> "anthropic"
+                                        item.first.contains("Gemini") -> "gemini"
+                                        else -> "openai"
+                                    }
                                     if (item.first != "自定义") { endpoint = item.second; model = "" }
                                 },
                                 label = { Text(item.first) },
@@ -593,7 +602,7 @@ private fun SetupScreen(
                 )
                 Text("密钥使用 Android Keystore 加密保存在本机，不会写入项目文件。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(
-                    onClick = { onStart(initial.copy(provider = provider, endpoint = endpoint.trim(), model = model.trim()), key.trim()) },
+                    onClick = { onStart(initial.copy(provider = provider, apiProtocol = apiProtocol, endpoint = endpoint.trim(), model = model.trim()), key.trim()) },
                     enabled = endpoint.isNotBlank() && model.isNotBlank() && key.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().height(50.dp)
                 ) { Text("保存并开始聊天") }
@@ -879,7 +888,10 @@ private fun SettingsScreen(
         Triple("DeepSeek", "https://api.deepseek.com", ""),
         Triple("OpenRouter", "https://openrouter.ai/api/v1", ""),
         Triple("智谱标准 API", "https://open.bigmodel.cn/api/paas/v4", ""),
-        Triple("智谱 Coding Plan", "https://open.bigmodel.cn/api/coding/paas/v4", "")
+        Triple("智谱 Coding Plan", "https://open.bigmodel.cn/api/coding/paas/v4", ""),
+        Triple("Anthropic Claude", "https://api.anthropic.com", ""),
+        Triple("Google Gemini", "https://generativelanguage.googleapis.com/v1beta", ""),
+        Triple("Ollama", "http://localhost:11434/v1", "")
     )
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 14.dp),
@@ -895,24 +907,52 @@ private fun SettingsScreen(
         HorizontalDivider()
         Text("API 配置", fontWeight = FontWeight.SemiBold)
         Text(
-            if (settings.provider.contains("智谱")) {
-                if (settings.provider.contains("Coding")) {
-                    "当前为 GLM Coding Plan 专用接口。请使用 Coding Plan 页面生成的套餐 Key；模型 ID 由你自己决定。"
-                } else {
-                    "当前为智谱标准 API。请使用智谱开放平台「API Keys」页面创建的标准 API Key；模型 ID 由你自己决定。"
-                }
-            } else {
-                "选择服务商只填写 API 地址；模型 ID 由你自己决定和填写。"
+            when {
+                settings.provider.contains("Coding") ->
+                    "GLM Coding Plan 专用接口，请使用对应套餐密钥。模型 ID 由你自己选择。"
+                settings.provider.contains("智谱") ->
+                    "智谱标准 API，请使用「API Keys」页面的标准密钥。模型 ID 由你自己选择。"
+                settings.apiProtocol == "anthropic" ->
+                    "Anthropic Messages 协议：使用 Claude Console API Key，发送 x-api-key 与 anthropic-version。"
+                settings.apiProtocol == "gemini" ->
+                    "Gemini 原生协议：使用 Google AI Studio API Key，发送 x-goog-api-key。"
+                else ->
+                    "OpenAI Chat Completions 兼容协议，支持多个厂商和自建网关。模型 ID 由你自己填写。"
             },
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Text("接口协议", fontWeight = FontWeight.Medium)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            FilterChip(
+                selected = settings.apiProtocol == "openai",
+                onClick = { onChange(settings.copy(provider = "自定义", apiProtocol = "openai", endpoint = if (settings.endpoint.isBlank()) "https://api.openai.com/v1" else settings.endpoint)) },
+                label = { Text("OpenAI 兼容") }
+            )
+            FilterChip(
+                selected = settings.apiProtocol == "anthropic",
+                onClick = { onChange(settings.copy(provider = "Anthropic", apiProtocol = "anthropic", endpoint = if (settings.endpoint.isBlank()) "https://api.anthropic.com" else settings.endpoint)) },
+                label = { Text("Anthropic") }
+            )
+            FilterChip(
+                selected = settings.apiProtocol == "gemini",
+                onClick = { onChange(settings.copy(provider = "Google Gemini", apiProtocol = "gemini", endpoint = if (settings.endpoint.isBlank()) "https://generativelanguage.googleapis.com/v1beta" else settings.endpoint)) },
+                label = { Text("Gemini") }
+            )
+        }
         providers.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 row.forEach { p ->
                     FilterChip(
                         selected = settings.provider == p.first,
-                        onClick = { onChange(settings.copy(provider = p.first, endpoint = p.second, model = "")) },
+                        onClick = {
+                            val proto = when {
+                                p.first.contains("Claude") -> "anthropic"
+                                p.first.contains("Gemini") -> "gemini"
+                                else -> "openai"
+                            }
+                            onChange(settings.copy(provider = p.first, apiProtocol = proto, endpoint = p.second, model = ""))
+                        },
                         label = { Text(p.first, fontSize = 13.sp, maxLines = 1) },
                         modifier = Modifier.weight(1f)
                     )
