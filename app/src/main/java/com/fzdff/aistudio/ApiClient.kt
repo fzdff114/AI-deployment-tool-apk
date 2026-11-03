@@ -408,6 +408,19 @@ object ApiClient {
     private fun sseChunk(protocol: String, eventName: String, raw: String): String {
         if (raw == "[DONE]" || raw.isBlank()) return ""
         val json = try { JSONObject(raw) } catch (_: Exception) { return "" }
+        // Several gateways report provider-side failures as an SSE event while
+        // keeping the HTTP status at 200. Surface that real error instead of
+        // ending with the misleading "no displayable text" message.
+        if (eventName.equals("error", true) || json.has("error")) {
+            val error = json.optJSONObject("error")
+            val detail = sequenceOf(
+                error?.optString("message"),
+                json.optString("message"),
+                error?.optString("type")
+            ).firstOrNull { !it.isNullOrBlank() && it != "null" }
+                ?: raw.take(500)
+            throw IllegalStateException("服务商流式接口返回错误：$detail")
+        }
         return when (protocol) {
             "anthropic_messages" -> {
                 val type = json.optString("type").ifBlank { eventName }
