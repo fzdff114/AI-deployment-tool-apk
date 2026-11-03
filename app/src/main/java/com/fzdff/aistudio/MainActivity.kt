@@ -79,6 +79,42 @@ private enum class AppTab(val label: String) {
     CHAT("聊天"), FILES("工作区"), MODELS("模型"), SETTINGS("设置")
 }
 
+private data class ApiProviderPreset(
+    val name: String,
+    val endpoint: String,
+    val protocol: String = "openai_chat",
+    val authHeaderName: String = "auto",
+    val authHeaderPrefix: String = "Bearer"
+)
+
+private val API_PROVIDERS = listOf(
+    ApiProviderPreset("OpenAI", "https://api.openai.com/v1", "openai_responses"),
+    ApiProviderPreset("Anthropic / Claude", "https://api.anthropic.com", "anthropic_messages"),
+    ApiProviderPreset("Google Gemini", "https://generativelanguage.googleapis.com/v1beta", "gemini_generate"),
+    ApiProviderPreset("DeepSeek", "https://api.deepseek.com"),
+    ApiProviderPreset("OpenRouter", "https://openrouter.ai/api/v1"),
+    ApiProviderPreset("智谱标准 API", "https://open.bigmodel.cn/api/paas/v4"),
+    ApiProviderPreset("智谱 Coding Plan", "https://open.bigmodel.cn/api/coding/paas/v4"),
+    ApiProviderPreset("Groq", "https://api.groq.com/openai/v1"),
+    ApiProviderPreset("Mistral", "https://api.mistral.ai/v1"),
+    ApiProviderPreset("xAI", "https://api.x.ai/v1"),
+    ApiProviderPreset("Together AI", "https://api.together.xyz/v1"),
+    ApiProviderPreset("SiliconFlow", "https://api.siliconflow.cn/v1"),
+    ApiProviderPreset("阿里云百炼兼容模式", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+    ApiProviderPreset("Ollama（本机 / 局域网）", "http://127.0.0.1:11434/v1", "openai_chat", "none", ""),
+    ApiProviderPreset("自定义", "", "openai_chat")
+)
+
+private val API_PROTOCOLS = listOf(
+    "openai_chat" to "OpenAI 兼容 Chat Completions",
+    "openai_responses" to "OpenAI Responses API",
+    "anthropic_messages" to "Anthropic Messages API",
+    "gemini_generate" to "Google Gemini GenerateContent"
+)
+
+private fun apiProtocolLabel(value: String): String =
+    API_PROTOCOLS.firstOrNull { it.first == value }?.second ?: "OpenAI 兼容 Chat Completions"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AIStudioApp() {
