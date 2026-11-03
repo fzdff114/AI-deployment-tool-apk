@@ -105,6 +105,7 @@ private val API_PROVIDERS = listOf(
     ApiProviderPreset("NVIDIA NIM", "https://integrate.api.nvidia.com/v1"),
     ApiProviderPreset("Cohere 兼容 API", "https://api.cohere.ai/compatibility/v1"),
     ApiProviderPreset("Hugging Face Inference", "https://router.huggingface.co/v1"),
+    ApiProviderPreset("Azure OpenAI（自定义部署）", "", "openai_chat", "api-key", ""),
     ApiProviderPreset("SiliconFlow", "https://api.siliconflow.cn/v1"),
     ApiProviderPreset("阿里云百炼兼容模式", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
     ApiProviderPreset("Ollama（本机 / 局域网）", "http://127.0.0.1:11434/v1", "openai_chat", "none", ""),
