@@ -566,11 +566,11 @@ private fun SetupScreen(
         Spacer(Modifier.height(20.dp))
         Text("开始使用 AI Studio", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text("连接 API，或之后导入本地 GGUF 模型。聊天、写代码和文件开发都在一个独立应用中完成。", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        Text("支持 OpenAI 兼容接口、Anthropic Claude、Google Gemini，以及自定义 API 网关。模型 ID 由你自己选择。", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         Spacer(Modifier.height(28.dp))
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("选择服务商", fontWeight = FontWeight.SemiBold)
+                Text("选择服务商或网关", fontWeight = FontWeight.SemiBold)
                 providers.chunked(2).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         row.forEach { item ->
@@ -600,7 +600,7 @@ private fun SetupScreen(
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = { TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "隐藏" else "显示") } }
                 )
-                Text("密钥使用 Android Keystore 加密保存在本机，不会写入项目文件。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("API Key 使用 Android Keystore 加密保存在本机。首次也可以先跳过，稍后在设置中配置。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(
                     onClick = { onStart(initial.copy(provider = provider, apiProtocol = apiProtocol, endpoint = endpoint.trim(), model = model.trim()), key.trim()) },
                     enabled = endpoint.isNotBlank() && model.isNotBlank() && key.isNotBlank(),
@@ -923,6 +923,11 @@ private fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text("接口协议", fontWeight = FontWeight.Medium)
+        Text(
+            "协议必须与服务商一致：多数国产模型和聚合平台使用 OpenAI 兼容协议；Claude 使用 Anthropic；Gemini 使用 Google 原生协议。",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             FilterChip(
                 selected = settings.apiProtocol == "openai",
