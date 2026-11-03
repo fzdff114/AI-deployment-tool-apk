@@ -147,7 +147,8 @@ object AppStore {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (p.getBoolean("setup_done", false)) return true
         val s = loadSettings(context)
-        return s.endpoint.isNotBlank() && s.model.isNotBlank() && SecureStore.read(context).isNotBlank()
+        val authRequired = !s.authHeaderName.equals("none", ignoreCase = true)
+        return s.endpoint.isNotBlank() && s.model.isNotBlank() && (!authRequired || SecureStore.read(context).isNotBlank())
     }
 
     fun markSetupDone(context: Context) {
