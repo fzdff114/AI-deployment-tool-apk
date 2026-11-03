@@ -14,7 +14,9 @@ data class ChatMessage(val role: String, val content: String, val id: Long = Sys
 
 data class AppSettings(
     val provider: String = "自定义",
-    val apiProtocol: String = "openai",
+    val apiProtocol: String = "openai_chat",
+    val authHeaderName: String = "auto",
+    val authHeaderPrefix: String = "Bearer",
     val endpoint: String = "",
     val model: String = "",
     val theme: String = "blue",
@@ -97,14 +99,20 @@ object AppStore {
             }
             p.edit().putBoolean("model_default_migration_done", true).apply()
         }
+        val savedProtocol = p.getString("api_protocol", "openai_chat") ?: "openai_chat"
+        val normalizedProtocol = when (savedProtocol) {
+            "openai" -> "openai_chat"
+            "anthropic" -> "anthropic_messages"
+            "gemini" -> "gemini_generate"
+            else -> savedProtocol
+        }
         return AppSettings(
             provider = p.getString("provider", "自定义") ?: "自定义",
-            apiProtocol = p.getString("api_protocol", "openai") ?: "openai",
-            endpoint = p.getString("endpoint", "") ?: "",
-            model = p.getString("model", "") ?: "",
-            apiProtocol = p.getString("api_protocol", "openai_chat") ?: "openai_chat",
+            apiProtocol = normalizedProtocol,
             authHeaderName = p.getString("auth_header_name", "auto") ?: "auto",
             authHeaderPrefix = p.getString("auth_header_prefix", "Bearer") ?: "Bearer",
+            endpoint = p.getString("endpoint", "") ?: "",
+            model = p.getString("model", "") ?: "",
             theme = p.getString("theme", "blue") ?: "blue",
             reasoning = p.getString("reasoning", "medium") ?: "medium",
             sendReasoning = p.getBoolean("send_reasoning", false),
@@ -122,7 +130,6 @@ object AppStore {
             .putString("api_protocol", s.apiProtocol)
             .putString("endpoint", s.endpoint)
             .putString("model", s.model)
-            .putString("api_protocol", s.apiProtocol)
             .putString("auth_header_name", s.authHeaderName)
             .putString("auth_header_prefix", s.authHeaderPrefix)
             .putString("theme", s.theme)
