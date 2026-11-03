@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -38,63 +39,94 @@ object ApiClient {
         return base
     }
 
+    // Preserve gateway query parameters (for example Azure api-version)
+    // when joining the endpoint path.
+    private fun appendPathPreservingQuery(base: String, suffix: String): String {
+        val url = base.toHttpUrl()
+        return url.newBuilder().encodedPath(url.encodedPath.trimEnd('/') + suffix).build().toString()
+    }
+
+    private fun replacePathPreservingQuery(base: String, path: String): String {
+        return base.toHttpUrl().newBuilder().encodedPath(path).build().toString()
+    }
+
+    private fun basePath(base: String): String = base.toHttpUrl().encodedPath.trimEnd('/')
+
     private fun chatUrl(settings: AppSettings, stream: Boolean = false): String {
         val base = baseUrl(settings)
+        val path = basePath(base)
         val model = settings.model.trim()
         require(model.isNotBlank()) { "请先填写模型 ID" }
         return when (settings.apiProtocol) {
             "openai_responses" -> when {
-                base.endsWith("/responses", true) -> base
-                Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> "$base/responses"
-                else -> "$base/v1/responses"
+                path.endsWith("/responses", true) -> base
+                Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(path) ->
+                    appendPathPreservingQuery(base, "/responses")
+                else -> appendPathPreservingQuery(base, "/v1/responses")
             }
             "anthropic_messages" -> when {
-                base.endsWith("/messages", true) -> base
-                base.endsWith("/v1", true) -> "$base/messages"
-                else -> "$base/v1/messages"
+                path.endsWith("/messages", true) -> base
+                path.endsWith("/v1", true) -> appendPathPreservingQuery(base, "/messages")
+                else -> appendPathPreservingQuery(base, "/v1/messages")
             }
-            "gemini_generate" -> {
-                if (base.contains(":generateContent") || base.contains(":streamGenerateContent")) {
-                    if (stream) base.replace(":generateContent", ":streamGenerateContent")
-                        .let { if (it.contains("?")) it else it + "?alt=sse" }
-                    else base.replace(":streamGenerateContent", ":generateContent").substringBefore("?")
-                } else {
+            "gemini_generate" -> when {
+                path.endsWith(":streamGenerateContent", true) -> {
+                    if (stream) base else replacePathPreservingQuery(
+                        base, path.removeSuffix(":streamGenerateContent") + ":generateContent"
+                    )
+                }
+                path.endsWith(":generateContent", true) -> {
+                    if (!stream) base else replacePathPreservingQuery(
+                        base, path.removeSuffix(":generateContent") + ":streamGenerateContent"
+                    ).toHttpUrl().newBuilder().setQueryParameter("alt", "sse").build().toString()
+                }
+                else -> {
                     val safeModel = URLEncoder.encode(model.removePrefix("models/"), "UTF-8").replace("+", "%20")
-                    if (stream) "$base/models/$safeModel:streamGenerateContent?alt=sse"
-                    else "$base/models/$safeModel:generateContent"
+                    val method = if (stream) ":streamGenerateContent" else ":generateContent"
+                    val url = appendPathPreservingQuery(base, "/models/$safeModel$method")
+                    if (stream) url.toHttpUrl().newBuilder().setQueryParameter("alt", "sse").build().toString() else url
                 }
             }
             else -> when {
-                base.endsWith("/chat/completions", true) -> base
-                Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> "$base/chat/completions"
-                base.endsWith("/api/paas/v4", true) -> "$base/chat/completions"
-                base.endsWith("/api/coding/paas/v4", true) -> "$base/chat/completions"
-                base.endsWith("/openai", true) -> "$base/chat/completions"
-                settings.provider.contains("DeepSeek", true) -> "$base/chat/completions"
-                else -> "$base/v1/chat/completions"
+                path.endsWith("/chat/completions", true) -> base
+                path.contains("/openai/deployments/", true) ->
+                    appendPathPreservingQuery(base, "/chat/completions")
+                Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(path) ->
+                    appendPathPreservingQuery(base, "/chat/completions")
+                path.endsWith("/api/paas/v4", true) || path.endsWith("/api/coding/paas/v4", true) ->
+                    appendPathPreservingQuery(base, "/chat/completions")
+                path.endsWith("/openai", true) || settings.provider.contains("DeepSeek", true) ->
+                    appendPathPreservingQuery(base, "/chat/completions")
+                else -> appendPathPreservingQuery(base, "/v1/chat/completions")
             }
         }
     }
 
     private fun modelsUrl(settings: AppSettings): String {
         val base = baseUrl(settings)
+        val path = basePath(base)
         return when (settings.apiProtocol) {
             "anthropic_messages" -> when {
-                base.endsWith("/v1/models", true) -> base
-                base.endsWith("/v1", true) -> "$base/models"
-                else -> "$base/v1/models"
+                path.endsWith("/v1/models", true) -> base
+                path.endsWith("/v1", true) -> appendPathPreservingQuery(base, "/models")
+                else -> appendPathPreservingQuery(base, "/v1/models")
             }
-            "gemini_generate" -> if (base.endsWith("/models", true)) base else "$base/models"
+            "gemini_generate" -> if (path.endsWith("/models", true)) base else appendPathPreservingQuery(base, "/models")
             else -> when {
-                base.endsWith("/models", true) -> base
-                base.endsWith("/chat/completions", true) -> base.substringBeforeLast("/chat/completions") + "/models"
-                base.endsWith("/responses", true) -> base.substringBeforeLast("/responses") + "/models"
-                Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> "$base/models"
-                base.endsWith("/api/paas/v4", true) -> "$base/models"
-                base.endsWith("/api/coding/paas/v4", true) -> "$base/models"
-                base.endsWith("/openai", true) -> "$base/models"
-                settings.provider.contains("DeepSeek", true) -> "$base/models"
-                else -> "$base/v1/models"
+                path.endsWith("/models", true) -> base
+                path.endsWith("/chat/completions", true) ->
+                    replacePathPreservingQuery(base, path.substringBeforeLast("/chat/completions") + "/models")
+                path.endsWith("/responses", true) ->
+                    replacePathPreservingQuery(base, path.substringBeforeLast("/responses") + "/models")
+                path.contains("/openai/deployments/", true) ->
+                    throw IllegalStateException("Azure OpenAI 部署端点不提供通用 GET /models。请在模型 ID 中填写部署名称，然后直接测试聊天。")
+                Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(path) ->
+                    appendPathPreservingQuery(base, "/models")
+                path.endsWith("/api/paas/v4", true) || path.endsWith("/api/coding/paas/v4", true) ->
+                    appendPathPreservingQuery(base, "/models")
+                path.endsWith("/openai", true) || settings.provider.contains("DeepSeek", true) ->
+                    appendPathPreservingQuery(base, "/models")
+                else -> appendPathPreservingQuery(base, "/v1/models")
             }
         }
     }
