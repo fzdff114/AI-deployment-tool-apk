@@ -2,6 +2,14 @@
 
 独立原生 Android AI 客户端。无需 Termux、Python、浏览器控制台或常驻本地服务器。
 
+## v1.2.0 更新
+- 将云端 API 抽象为三类协议适配器：OpenAI Chat Completions 兼容、Anthropic Messages、Google Gemini Generate Content
+- 增加 Claude 与 Gemini 原生接口；分别使用 `x-api-key + anthropic-version` 和 `x-goog-api-key`，不再强行套用 Bearer 格式
+- OpenAI 兼容协议支持 OpenAI、DeepSeek、OpenRouter、智谱、Ollama、LM Studio、vLLM 及兼容网关
+- 三类协议均支持流式聊天、非流式请求、模型列表读取和聊天连接测试
+- 增加协议选择器；模型 ID 仍由用户自行填写，也可通过模型列表自行选择
+- 改进协议级错误信息、模型列表接口路径和多轮消息格式
+
 ## v1.1.5 更新
 - 修复 GitHub Actions 版本号读取和签名指纹摘要脚本，Release 资产名不再出现空版本号
 - 先验证 ZIP 对齐，再通过 `apksigner` 验证 APK 签名并记录证书 SHA-256
@@ -20,11 +28,24 @@
 - 输入框增加系统导航区域 Insets 适配，避免底部手势区域遮挡发送栏
 
 ## 云端 API
-- OpenAI 兼容 API：OpenAI、DeepSeek、OpenRouter、智谱标准 API、GLM Coding Plan、自定义端点
-- SSE 流式聊天、多轮上下文、本地历史对话
-- 单次回复额度、会话额度、推理强度
-- API 配置支持测试连接、获取服务端模型列表、手动输入模型 ID
+- OpenAI 兼容协议：OpenAI、DeepSeek、OpenRouter、智谱标准 API、GLM Coding Plan、Ollama、LM Studio、vLLM 和自建兼容网关
+- Anthropic Messages 原生协议：Claude API
+- Google Gemini 原生协议：Gemini API
+- SSE 流式聊天、多轮上下文、非流式连接测试
+- API 配置支持获取模型列表和手动填写模型 ID
 - API Key 使用 Android Keystore AES-GCM 加密存储
+
+### 协议选择
+在「设置 → API 配置 → 接口协议」选择与服务商一致的协议：
+- **OpenAI 兼容**：使用 `/chat/completions` 与 Bearer Token。适用于 OpenAI 和大量提供 OpenAI 兼容接口的模型平台、自建网关及 Ollama 兼容服务。
+- **Anthropic**：使用 `POST /v1/messages`、`x-api-key` 与 `anthropic-version` 请求头。基础地址通常为 `https://api.anthropic.com`。
+- **Gemini**：使用 `generateContent` / `streamGenerateContent`，通过 `x-goog-api-key` 传递密钥。基础地址通常为 `https://generativelanguage.googleapis.com/v1beta`。
+
+选择服务商预设只会填入协议和常用 API 地址，不会自动替用户选择模型。模型 ID 可以手动填写，也可以点击「获取服务商模型列表」后从返回列表中选择。部分服务商或代理不开放模型列表接口，此时可直接手动填写模型 ID。
+
+「OpenAI 兼容」不是万能协议；若服务商只提供专有 API、Azure 部署路径、特殊签名或额外自定义请求头，必须使用该服务商的兼容端点，或后续添加专用适配器。
+- 本地历史对话、单次回复额度、会话额度、推理强度
+
 
 ### 智谱 API 类型
 标准 API 基础地址：
