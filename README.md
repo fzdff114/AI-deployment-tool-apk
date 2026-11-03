@@ -2,6 +2,14 @@
 
 独立原生 Android AI 客户端。无需 Termux、Python、浏览器控制台或常驻本地服务器。
 
+## v1.2.1 更新
+- 扩展通用 OpenAI 兼容服务商：Fireworks AI、Cerebras、NVIDIA NIM、Cohere Compatibility API、Hugging Face Inference Providers
+- 增加 Azure OpenAI 部署预设：允许填写完整 deployment URL 与 `api-version` 查询参数，使用 `api-key` 请求头
+- 修复自定义网关带查询参数时追加 API 路径会破坏 URL 的问题；保留 Azure `api-version` 等参数
+- 推理强度按服务商参数适配：Gemini 2.5 使用 `thinkingBudget`，Gemini 3/更新模型使用 `thinkingLevel`；Claude 4.6+ 使用 adaptive thinking，Claude 4.5 使用受限的 budget 模式
+- Cerebras 使用 `max_completion_tokens`；Cohere Compatibility 的 reasoning effort 映射到其支持的 `none/high`
+- Azure OpenAI 部署 URL 不提供通用模型目录读取时，会提示手动填写部署名称并直接测试聊天
+
 ## v1.2.0 更新
 - 将云端 API 抽象为四类协议适配器：OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Google Gemini Generate Content
 - 增加 Claude 与 Gemini 原生接口；分别使用 `x-api-key + anthropic-version` 和 `x-goog-api-key`，不再强行套用 Bearer 格式
@@ -30,18 +38,22 @@
 - 输入框增加系统导航区域 Insets 适配，避免底部手势区域遮挡发送栏
 
 ## 云端 API
-- OpenAI 兼容协议：OpenAI、DeepSeek、OpenRouter、智谱标准 API、GLM Coding Plan、Ollama、LM Studio、vLLM 和自建兼容网关
-- Anthropic Messages 原生协议：Claude API
-- Google Gemini 原生协议：Gemini API
-- SSE 流式聊天、多轮上下文、非流式连接测试
-- API 配置支持获取模型列表和手动填写模型 ID
+- OpenAI Chat Completions 与 Responses API
+- Anthropic Messages 原生协议
+- Google Gemini GenerateContent 原生协议
+- OpenAI 兼容端点预设：OpenAI、DeepSeek、OpenRouter、智谱标准 API、GLM Coding Plan、Groq、Mistral、xAI、Together AI、Fireworks AI、Cerebras、NVIDIA NIM、Cohere Compatibility、Hugging Face Inference Providers、SiliconFlow、阿里云百炼、Ollama；也支持 LM Studio、llama.cpp、vLLM、自建 LiteLLM 和自定义网关
+- Azure OpenAI：自定义 deployment URL、`api-version` 查询参数与 `api-key` 认证头
+- SSE 流式聊天、多轮上下文、真实聊天接口测试、模型目录读取（以服务商是否开放为准）
+- 单次回复额度、会话额度、推理强度和协议专用推理参数
 - API Key 使用 Android Keystore AES-GCM 加密存储
 
 ### 协议选择
 在「设置 → API 配置 → 接口协议」选择与服务商一致的协议：
-- **OpenAI 兼容**：使用 `/chat/completions` 与 Bearer Token。适用于 OpenAI 和大量提供 OpenAI 兼容接口的模型平台、自建网关及 Ollama 兼容服务。
+- **OpenAI Chat Completions**：使用 `/chat/completions`；默认 Bearer Token，可在高级选项中自定义请求头。
+- **OpenAI Responses**：使用 `/responses` 和 Responses 事件流。
 - **Anthropic**：使用 `POST /v1/messages`、`x-api-key` 与 `anthropic-version` 请求头。基础地址通常为 `https://api.anthropic.com`。
 - **Gemini**：使用 `generateContent` / `streamGenerateContent`，通过 `x-goog-api-key` 传递密钥。基础地址通常为 `https://generativelanguage.googleapis.com/v1beta`。
+- **Azure OpenAI**：在自定义预设中填完整的 deployment 地址，例如 `https://RESOURCE.openai.azure.com/openai/deployments/DEPLOYMENT?api-version=...`；高级认证头选择 `api-key`，前缀留空。模型列表通常不通过该部署端点提供，模型 ID 填部署名称。
 
 自定义 API 可设置协议、基础 URL、模型 ID、认证请求头名称和前缀。认证头设置为 `none` 时可连接无鉴权的本地或局域网 API（例如自行配置的 Ollama 服务）。服务商预设只填入常用地址与协议，不会代替使用者选择模型 ID。
 
