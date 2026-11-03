@@ -2,6 +2,12 @@
 
 独立原生 Android AI 客户端。无需 Termux、Python、浏览器控制台或常驻本地服务器。
 
+## v1.2.2 更新
+- 扩展 OpenAI 兼容服务商预设：Kimi（月之暗面）、豆包/火山方舟、MiniMax 中国与国际、百度千帆、腾讯混元、StepFun、小米 MiMo、百川、Yi、ModelScope、DeepInfra、Novita、SambaNova、Hyperbolic、Z.ai
+- 增加 Google Gemini 的 OpenAI 兼容端点预设；可在 Gemini 原生协议与 OpenAI 兼容协议之间按服务商端点切换
+- 修复部分服务商在 HTTP 200 状态下通过 SSE error 事件返回错误时，只显示“没有可显示文本”的问题
+- 明确兼容范围：新增预设主要使用 OpenAI Chat Completions；厂商专有工具、视觉、音频、签名认证和参数仍需各自专用适配器
+
 ## v1.2.1 更新
 - 扩展通用 OpenAI 兼容服务商：Fireworks AI、Cerebras、NVIDIA NIM、Cohere Compatibility API、Hugging Face Inference Providers
 - 增加 Azure OpenAI 部署预设：允许填写完整 deployment URL 与 `api-version` 查询参数，使用 `api-key` 请求头
@@ -41,7 +47,7 @@
 - OpenAI Chat Completions 与 Responses API
 - Anthropic Messages 原生协议
 - Google Gemini GenerateContent 原生协议
-- OpenAI 兼容端点预设：OpenAI、DeepSeek、OpenRouter、智谱标准 API、GLM Coding Plan、Groq、Mistral、xAI、Together AI、Fireworks AI、Cerebras、NVIDIA NIM、Cohere Compatibility、Hugging Face Inference Providers、SiliconFlow、阿里云百炼、Ollama；也支持 LM Studio、llama.cpp、vLLM、自建 LiteLLM 和自定义网关
+- OpenAI 兼容端点预设：OpenAI、DeepSeek、OpenRouter、智谱标准 API、GLM Coding Plan、Groq、Mistral、xAI、Together AI、Fireworks AI、Cerebras、NVIDIA NIM、Cohere Compatibility、Hugging Face Inference Providers、Kimi、豆包/火山方舟、MiniMax、百度千帆、腾讯混元、StepFun、小米 MiMo、百川、Yi、ModelScope、DeepInfra、Novita、SambaNova、Hyperbolic、Z.ai、SiliconFlow、阿里云百炼、Ollama；也支持 LM Studio、llama.cpp、vLLM、自建 LiteLLM 和自定义网关
 - Azure OpenAI：自定义 deployment URL、`api-version` 查询参数与 `api-key` 认证头
 - SSE 流式聊天、多轮上下文、真实聊天接口测试、模型目录读取（以服务商是否开放为准）
 - 单次回复额度、会话额度、推理强度和协议专用推理参数
