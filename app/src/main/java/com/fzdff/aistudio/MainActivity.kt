@@ -11,6 +11,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -312,6 +318,8 @@ private fun AIStudioApp() {
                         }
                     }
                 ) { padding ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                    Box(Modifier.fillMaxSize().widthIn(max = 980.dp)) {
                     when (tab) {
                         AppTab.CHAT -> ChatScreen(
                             modifier = Modifier.padding(padding),
@@ -511,6 +519,8 @@ private fun AIStudioApp() {
                             error = errorText
                         )
                         null -> Unit
+                    }
+                    }
                     }
                 }
                 if (showHistory) {
@@ -763,7 +773,7 @@ private fun ChatScreen(
     LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length, busy) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
-    Column(modifier.fillMaxSize().imePadding()) {
+    Column(modifier.fillMaxSize().widthIn(max = 900.dp).imePadding()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -776,7 +786,7 @@ private fun ChatScreen(
             Text("约 ${settings.sessionUsed} / ${if (settings.sessionLimit == 0) "∞" else settings.sessionLimit} tokens", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        if (messages.isEmpty()) {
+        AnimatedVisibility(visible = messages.isEmpty(), enter = fadeIn() + slideInVertically { it / 8 }, exit = fadeOut() + slideOutVertically { it / 8 }) {
             Column(
                 Modifier.weight(1f).fillMaxWidth().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -788,7 +798,8 @@ private fun ChatScreen(
                 Spacer(Modifier.height(8.dp))
                 Text("输入消息开始对话。模型会根据你填写的模型 ID 工作。", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             }
-        } else {
+        }
+        AnimatedVisibility(visible = messages.isNotEmpty(), enter = fadeIn() + slideInVertically { it / 12 }, exit = fadeOut()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -808,7 +819,7 @@ private fun ChatScreen(
             Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
         }
 
-        Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+        Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp, modifier = Modifier.animateContentSize()) {
             Row(
                 Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.Bottom
@@ -816,8 +827,8 @@ private fun ChatScreen(
                 OutlinedTextField(
                     value = input, onValueChange = onInput,
                     placeholder = { Text("发送消息…") },
-                    modifier = Modifier.weight(1f),
-                    maxLines = 5,
+                    modifier = Modifier.weight(1f).animateContentSize(),
+                    maxLines = 6,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Send
@@ -848,6 +859,7 @@ private fun ChatScreen(
 @Composable
 private fun MessageBubble(message: ChatMessage) {
     val isUser = message.role == "user"
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
         if (!isUser) {
             Icon(Icons.Default.SmartToy, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp, end = 8.dp).size(22.dp))
@@ -857,7 +869,7 @@ private fun MessageBubble(message: ChatMessage) {
             contentColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
             shape = RoundedCornerShape(if (isUser) 22.dp else 16.dp),
             border = if (isUser) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
-            modifier = Modifier.widthIn(max = 330.dp)
+            modifier = Modifier.widthIn(max = maxWidth * 0.84f).animateContentSize()
         ) {
             SelectionContainer {
                 Text(
@@ -868,6 +880,9 @@ private fun MessageBubble(message: ChatMessage) {
                 )
             }
         }
+    }
+}
+
     }
 }
 
@@ -891,7 +906,7 @@ private fun WorkspaceScreen(
             Toast.makeText(context, "文件已保存", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) { Toast.makeText(context, e.message ?: "保存失败", Toast.LENGTH_LONG).show() }
     }
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxSize().widthIn(max = 760.dp).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("开发工作区", fontSize = 23.sp, fontWeight = FontWeight.Bold)
         Text("描述你要创建的文件，AI 会生成正文，你可以检查后导出到手机。", color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(fileName, onFileName, label = { Text("文件名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -1018,7 +1033,7 @@ private fun SettingsScreen(
     val needsKey = !settings.authHeaderName.equals("none", ignoreCase = true)
 
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 14.dp),
+        modifier.fillMaxSize().widthIn(max = 760.dp).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("设置", fontSize = 24.sp, fontWeight = FontWeight.Bold)
