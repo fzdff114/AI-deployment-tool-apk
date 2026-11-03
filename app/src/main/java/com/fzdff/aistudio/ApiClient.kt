@@ -216,7 +216,34 @@ object ApiClient {
                 }
                 JSONObject().put("model", model).put("max_tokens", limit)
                     .put("messages", userAssistant).put("stream", stream)
-                    .apply { if (system.isNotBlank()) put("system", system) }
+                    .apply {
+                        if (system.isNotBlank()) put("system", system)
+                        if (settings.sendReasoning && settings.reasoning != "auto") {
+                            val normalized = model.lowercase()
+                            val adaptiveSupported = normalized.contains("4.6") ||
+                                normalized.contains("4-6") || normalized.contains("4.7") ||
+                                normalized.contains("4-7") || normalized.contains("5")
+                            val legacyThinkingSupported = normalized.contains("4.5") ||
+                                normalized.contains("4-5")
+                            when {
+                                adaptiveSupported -> {
+                                    put("thinking", JSONObject().put("type", "adaptive"))
+                                    put("output_config", JSONObject().put("effort", settings.reasoning))
+                                }
+                                legacyThinkingSupported && limit > 1024 -> {
+                                    val requestedBudget = when (settings.reasoning) {
+                                        "low" -> 1024
+                                        "high" -> 4096
+                                        else -> 2048
+                                    }
+                                    val budget = minOf(requestedBudget, limit - 1)
+                                    if (budget >= 1024) {
+                                        put("thinking", JSONObject().put("type", "enabled").put("budget_tokens", budget))
+                                    }
+                                }
+                            }
+                        }
+                    }
             }
             "gemini_generate" -> {
                 val systemParts = JSONArray()
@@ -228,17 +255,45 @@ object ApiClient {
                     if (role == "system") systemParts.put(JSONObject().put("text", item.optString("content")))
                     else contents.put(JSONObject().put("role", if (role == "assistant") "model" else "user").put("parts", part))
                 }
+                val generationConfig = JSONObject().put("maxOutputTokens", limit)
+                if (settings.sendReasoning && settings.reasoning != "auto") {
+                    if (model.contains("2.5", ignoreCase = true)) {
+                        val requestedBudget = when (settings.reasoning) {
+                            "low" -> 1024
+                            "high" -> 4096
+                            else -> 2048
+                        }
+                        val budget = minOf(requestedBudget, limit - 1)
+                        if (budget >= 1024) {
+                            generationConfig.put("thinkingConfig", JSONObject().put("thinkingBudget", budget))
+                        }
+                    } else {
+                        generationConfig.put(
+                            "thinkingConfig",
+                            JSONObject().put("thinkingLevel", settings.reasoning.uppercase())
+                        )
+                    }
+                }
                 JSONObject().put("contents", contents)
-                    .put("generationConfig", JSONObject().put("maxOutputTokens", limit))
+                    .put("generationConfig", generationConfig)
                     .apply {
                         if (systemParts.length() > 0) put("systemInstruction", JSONObject().put("parts", systemParts))
                     }
             }
             else -> JSONObject().put("model", model).put("messages", source)
-                .put("stream", stream).put("max_tokens", limit).apply {
+                .put("stream", stream).apply {
+                    if (settings.provider.contains("Cerebras", ignoreCase = true)) {
+                        put("max_completion_tokens", limit)
+                    } else {
+                        put("max_tokens", limit)
+                    }
                     if (settings.sendReasoning && settings.reasoning != "auto") {
-                        if (settings.provider.contains("智谱")) put("thinking", JSONObject().put("type", "enabled"))
-                        else put("reasoning_effort", settings.reasoning)
+                        when {
+                            settings.provider.contains("智谱") -> put("thinking", JSONObject().put("type", "enabled"))
+                            settings.provider.contains("Cohere", ignoreCase = true) ->
+                                put("reasoning_effort", if (settings.reasoning == "high") "high" else "none")
+                            else -> put("reasoning_effort", settings.reasoning)
+                        }
                     }
                 }
         }
