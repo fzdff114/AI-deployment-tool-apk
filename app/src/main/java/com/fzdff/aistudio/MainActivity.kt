@@ -786,9 +786,9 @@ private fun ChatScreen(
             Text("约 ${settings.sessionUsed} / ${if (settings.sessionLimit == 0) "∞" else settings.sessionLimit} tokens", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        AnimatedVisibility(visible = messages.isEmpty(), enter = fadeIn() + slideInVertically { it / 8 }, exit = fadeOut() + slideOutVertically { it / 8 }) {
+        AnimatedVisibility(modifier = Modifier.weight(1f).fillMaxWidth(), visible = messages.isEmpty(), enter = fadeIn() + slideInVertically { it / 8 }, exit = fadeOut() + slideOutVertically { it / 8 }) {
             Column(
-                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -799,10 +799,10 @@ private fun ChatScreen(
                 Text("输入消息开始对话。模型会根据你填写的模型 ID 工作。", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             }
         }
-        AnimatedVisibility(visible = messages.isNotEmpty(), enter = fadeIn() + slideInVertically { it / 12 }, exit = fadeOut()) {
+        AnimatedVisibility(modifier = Modifier.weight(1f).fillMaxWidth(), visible = messages.isNotEmpty(), enter = fadeIn() + slideInVertically { it / 12 }, exit = fadeOut()) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
