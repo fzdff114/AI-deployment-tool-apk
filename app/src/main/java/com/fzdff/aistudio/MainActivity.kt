@@ -720,6 +720,7 @@ private fun SetupScreen(
     }
 }
 
+@Composable
 private fun ChatScreen(
     modifier: Modifier,
     messages: SnapshotStateList<ChatMessage>,
@@ -968,7 +969,6 @@ private fun ModelScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreen(
