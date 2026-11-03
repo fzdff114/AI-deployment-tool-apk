@@ -13,8 +13,9 @@ import javax.crypto.spec.GCMParameterSpec
 data class ChatMessage(val role: String, val content: String, val id: Long = System.nanoTime())
 
 data class AppSettings(
-    val provider: String = "OpenAI",
-    val endpoint: String = "https://api.openai.com/v1",
+    val provider: String = "自定义",
+    val apiProtocol: String = "openai",
+    val endpoint: String = "",
     val model: String = "",
     val theme: String = "blue",
     val reasoning: String = "medium",
@@ -97,8 +98,9 @@ object AppStore {
             p.edit().putBoolean("model_default_migration_done", true).apply()
         }
         return AppSettings(
-            provider = p.getString("provider", "OpenAI") ?: "OpenAI",
-            endpoint = p.getString("endpoint", "https://api.openai.com/v1") ?: "https://api.openai.com/v1",
+            provider = p.getString("provider", "自定义") ?: "自定义",
+            apiProtocol = p.getString("api_protocol", "openai") ?: "openai",
+            endpoint = p.getString("endpoint", "") ?: "",
             model = p.getString("model", "") ?: "",
             theme = p.getString("theme", "blue") ?: "blue",
             reasoning = p.getString("reasoning", "medium") ?: "medium",
@@ -114,6 +116,7 @@ object AppStore {
     fun saveSettings(context: Context, s: AppSettings) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("provider", s.provider)
+            .putString("api_protocol", s.apiProtocol)
             .putString("endpoint", s.endpoint)
             .putString("model", s.model)
             .putString("theme", s.theme)
