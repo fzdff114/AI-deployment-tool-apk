@@ -2,12 +2,11 @@ package com.fzdff.aistudio
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -16,16 +15,8 @@ import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
-/**
- * Provider-neutral API layer.
- *
- * Supported protocol families:
- * - OpenAI Chat Completions compatible APIs (OpenAI, DeepSeek, Zhipu, OpenRouter,
- *   Ollama, LM Studio, vLLM and many compatible gateways)
- * - Anthropic Messages API
- * - Google Gemini generateContent / streamGenerateContent API
- */
 object ApiClient {
+    private const val ANTHROPIC_VERSION = "2023-06-01"
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
@@ -34,59 +25,76 @@ object ApiClient {
         .retryOnConnectionFailure(true)
         .build()
 
-    private enum class Protocol { OPENAI, ANTHROPIC, GEMINI }
-
-    private fun protocol(settings: AppSettings): Protocol =
-        when (settings.apiProtocol.lowercase().trim()) {
-            "anthropic", "claude", "messages" -> Protocol.ANTHROPIC
-            "gemini", "google" -> Protocol.GEMINI
-            else -> Protocol.OPENAI
-        }
-
     private fun normalizedKey(value: String): String {
         val trimmed = value.trim().removeSurrounding("\"").removeSurrounding("'").trim()
-        return if (trimmed.startsWith("Bearer ", ignoreCase = true)) {
-            trimmed.substringAfter(' ').trim()
-        } else trimmed
+        return if (trimmed.startsWith("Bearer ", true)) trimmed.substringAfter(' ').trim() else trimmed
     }
 
     private fun baseUrl(settings: AppSettings): String {
         val base = settings.endpoint.trim().trimEnd('/')
-        require(base.startsWith("https://") || base.startsWith("http://")) {
-            "API 地址格式不正确：必须以 https:// 或 http:// 开头"
+        require(base.startsWith("https://", true) || base.startsWith("http://", true)) {
+            "API 地址格式不正确：请填写完整的 http:// 或 https:// 地址"
         }
         return base
     }
 
-    private fun openAiChatUrl(settings: AppSettings): String {
+    private fun chatUrl(settings: AppSettings, stream: Boolean = false): String {
         val base = baseUrl(settings)
-        if (base.endsWith("/chat/completions", true)) return base
-        return when {
-            Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> "$base/chat/completions"
-            base.endsWith("/api/paas/v4", true) -> "$base/chat/completions"
-            base.endsWith("/api/coding/paas/v4", true) -> "$base/chat/completions"
-            base.endsWith("/openai", true) -> "$base/chat/completions"
-            settings.provider.contains("DeepSeek", true) -> "$base/chat/completions"
-            else -> "$base/v1/chat/completions"
+        val model = settings.model.trim()
+        require(model.isNotBlank()) { "请先填写模型 ID" }
+        return when (settings.apiProtocol) {
+            "openai_responses" -> when {
+                base.endsWith("/responses", true) -> base
+                Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> "$base/responses"
+                else -> "$base/v1/responses"
+            }
+            "anthropic_messages" -> when {
+                base.endsWith("/messages", true) -> base
+                base.endsWith("/v1", true) -> "$base/messages"
+                else -> "$base/v1/messages"
+            }
+            "gemini_generate" -> {
+                if (base.contains(":generateContent") || base.contains(":streamGenerateContent")) {
+                    if (stream) base.replace(":generateContent", ":streamGenerateContent")
+                        .let { if (it.contains("?")) it else it + "?alt=sse" }
+                    else base.replace(":streamGenerateContent", ":generateContent").substringBefore("?")
+                } else {
+                    val safeModel = URLEncoder.encode(model.removePrefix("models/"), "UTF-8").replace("+", "%20")
+                    if (stream) "$base/models/$safeModel:streamGenerateContent?alt=sse"
+                    else "$base/models/$safeModel:generateContent"
+                }
+            }
+            else -> when {
+                base.endsWith("/chat/completions", true) -> base
+                Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> "$base/chat/completions"
+                base.endsWith("/api/paas/v4", true) -> "$base/chat/completions"
+                base.endsWith("/api/coding/paas/v4", true) -> "$base/chat/completions"
+                base.endsWith("/openai", true) -> "$base/chat/completions"
+                else -> "$base/v1/chat/completions"
+            }
         }
     }
 
-    private fun anthropicMessagesUrl(settings: AppSettings): String {
+    private fun modelsUrl(settings: AppSettings): String {
         val base = baseUrl(settings)
-        if (base.endsWith("/v1/messages", true)) return base
-        return if (base.endsWith("/v1", true)) "$base/messages" else "$base/v1/messages"
-    }
-
-    private fun geminiGenerateUrl(settings: AppSettings, streaming: Boolean): HttpUrl {
-        val base = baseUrl(settings)
-        val normalizedModel = settings.model.trim().removePrefix("models/")
-        require(normalizedModel.isNotBlank()) { "模型 ID 不能为空" }
-        val root = base.removeSuffix("/v1beta").removeSuffix("/v1")
-        val version = if (base.endsWith("/v1", true)) "/v1" else "/v1beta"
-        val method = if (streaming) "streamGenerateContent" else "generateContent"
-        return "$root$version/models/${normalizedModel}:$method".toHttpUrl().newBuilder().apply {
-            if (streaming) addQueryParameter("alt", "sse")
-        }.build()
+        return when (settings.apiProtocol) {
+            "anthropic_messages" -> when {
+                base.endsWith("/v1/models", true) -> base
+                base.endsWith("/v1", true) -> "$base/models"
+                else -> "$base/v1/models"
+            }
+            "gemini_generate" -> if (base.endsWith("/models", true)) base else "$base/models"
+            else -> when {
+                base.endsWith("/models", true) -> base
+                base.endsWith("/chat/completions", true) -> base.substringBeforeLast("/chat/completions") + "/models"
+                base.endsWith("/responses", true) -> base.substringBeforeLast("/responses") + "/models"
+                Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> "$base/models"
+                base.endsWith("/api/paas/v4", true) -> "$base/models"
+                base.endsWith("/api/coding/paas/v4", true) -> "$base/models"
+                base.endsWith("/openai", true) -> "$base/models"
+                else -> "$base/v1/models"
+            }
+        }
     }
 
     private fun errorMessage(code: Int, raw: String, fallback: String): String {
@@ -97,337 +105,284 @@ object ApiClient {
             providerCode = root.optString("code")
             val nested = root.optJSONObject("error")
             detail = sequenceOf(
-                nested?.optString("message"),
-                root.optString("message"),
-                nested?.optString("detail"),
-                root.optString("detail")
+                nested?.optString("message"), nested?.optString("detail"),
+                root.optString("message"), root.optString("detail")
             ).firstOrNull { !it.isNullOrBlank() && it != "null" } ?: detail
-        } catch (_: Exception) {
-            // Keep plain-text reverse-proxy errors visible.
-        }
-        val suffix = if (providerCode.isNotBlank() && providerCode != code.toString()) "（服务商代码：$providerCode）" else ""
+        } catch (_: Exception) { }
+        val suffix = if (providerCode.isNotBlank() && providerCode != code.toString()) "（服务商代码：" + providerCode + "）" else ""
         return when (code) {
-            400 -> "请求参数错误（HTTP 400）：$detail"
-            401 -> "API 身份验证失败（HTTP 401）：$detail。请确认 API Key、鉴权方式和 API 地址属于同一个服务商产品。"
-            403 -> "API 权限不足（HTTP 403）：$detail。请检查账户权限、模型权限、余额或 IP 白名单。"
-            404 -> "接口或模型不存在（HTTP 404）：$detail。请检查协议类型、API 地址和模型 ID。"
-            408 -> "API 请求超时（HTTP 408）：$detail"
-            413 -> "请求内容过大（HTTP 413）：请缩短对话历史或减少附件。$detail"
-            429 -> "请求过于频繁或额度不足（HTTP 429）：$detail。请检查 RPM、TPM、并发限制和账户额度。"
-            500, 502, 503, 504 -> "服务商暂时不可用（HTTP $code）：$detail"
-            else -> "API 请求失败（HTTP $code）$suffix：$detail"
+            400 -> "请求参数错误（HTTP 400）：" + detail
+            401 -> "身份验证失败（HTTP 401）：" + detail + "。请检查 API Key、认证请求头和接口地址是否属于同一服务商产品。"
+            402 -> "账户余额或套餐额度不足（HTTP 402）：" + detail
+            403 -> "API 权限不足（HTTP 403）：" + detail + "。请检查模型权限、套餐、余额或 IP 白名单。"
+            404 -> "接口路径或模型不存在（HTTP 404）：" + detail + "。请检查基础地址、API 协议和模型 ID。"
+            408 -> "服务端处理超时（HTTP 408）：" + detail
+            413 -> "请求内容过大：请缩短历史对话或降低上下文长度。" + detail
+            415 -> "服务端不接受当前请求格式（HTTP 415）：" + detail
+            422 -> "模型或请求参数未通过校验（HTTP 422）：" + detail
+            429 -> "请求过于频繁或额度不足（HTTP 429）：" + detail + "。请检查速率限制、并发数和套餐额度。"
+            in 500..599 -> "AI 服务商服务器异常（HTTP " + code + "）" + suffix + "：" + detail
+            else -> "API 请求失败（HTTP " + code + "）" + suffix + "：" + detail
         }
     }
 
-    private fun authCandidates(settings: AppSettings, apiKey: String): List<String> {
-        val raw = normalizedKey(apiKey)
-        require(raw.isNotBlank()) { "请先填写 API Key / Token" }
-        val candidates = mutableListOf(raw)
+    private fun authHeader(settings: AppSettings): Pair<String, String>? {
+        val mode = settings.authHeaderName.trim()
+        val name = when {
+            mode.equals("none", true) -> return null
+            mode.isNotBlank() && !mode.equals("auto", true) -> mode
+            settings.apiProtocol == "anthropic_messages" -> "x-api-key"
+            settings.apiProtocol == "gemini_generate" -> "x-goog-api-key"
+            settings.provider.contains("Ollama", true) -> return null
+            else -> "Authorization"
+        }
+        val prefix = if (mode.equals("auto", true) || mode.isBlank()) {
+            if (name.equals("Authorization", true)) "Bearer" else ""
+        } else settings.authHeaderPrefix.trim()
+        return name to prefix
+    }
 
-        // Zhipu documents both direct API-key and id.secret -> HS256 JWT authentication.
-        if (settings.provider.contains("智谱") && protocol(settings) == Protocol.OPENAI) {
-            val split = raw.indexOf('.')
-            val secondDot = if (split >= 0) raw.indexOf('.', split + 1) else -1
-            if (split in 1 until raw.lastIndex && secondDot == -1) {
-                try {
-                    val keyId = raw.substring(0, split)
-                    val secret = raw.substring(split + 1)
-                    val now = System.currentTimeMillis()
-                    fun b64(bytes: ByteArray) =
-                        Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-                    val header = b64("""{"alg":"HS256","sign_type":"SIGN"}""".toByteArray())
-                    val payload = b64(
-                        JSONObject().put("api_key", keyId)
-                            .put("exp", now + 60L * 60L * 1000L)
-                            .put("timestamp", now).toString().toByteArray()
-                    )
-                    val signed = "$header.$payload"
-                    val mac = Mac.getInstance("HmacSHA256")
-                    mac.init(SecretKeySpec(secret.toByteArray(), "HmacSHA256"))
-                    candidates.add("$signed.${b64(mac.doFinal(signed.toByteArray()))}")
-                } catch (_: Exception) {
-                    // Continue with the original key if JWT construction isn't possible.
-                }
-            }
+    private fun authCandidates(settings: AppSettings, apiKey: String): List<String> {
+        if (authHeader(settings) == null) return listOf("")
+        val raw = normalizedKey(apiKey)
+        require(raw.isNotBlank()) { "当前认证方式需要 API Key，请先填写密钥；本地无认证服务可将认证请求头设为 none" }
+        val candidates = mutableListOf(raw)
+        val isZhipu = settings.endpoint.contains("open.bigmodel.cn", true) || settings.provider.contains("智谱")
+        val split = raw.indexOf('.')
+        val secondDot = if (split >= 0) raw.indexOf('.', split + 1) else -1
+        if (isZhipu && split in 1 until raw.lastIndex && secondDot == -1) {
+            val keyId = raw.substring(0, split)
+            val secret = raw.substring(split + 1)
+            try {
+                val now = System.currentTimeMillis()
+                fun b64(bytes: ByteArray) = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+                val header = b64("""{"alg":"HS256","sign_type":"SIGN"}""".toByteArray(Charsets.UTF_8))
+                val payload = b64(
+                    JSONObject().put("api_key", keyId)
+                        .put("exp", now + 60L * 60L * 1000L).put("timestamp", now)
+                        .toString().toByteArray(Charsets.UTF_8)
+                )
+                val signingInput = "$header.$payload"
+                val mac = Mac.getInstance("HmacSHA256")
+                mac.init(SecretKeySpec(secret.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+                candidates.add(signingInput + "." + b64(mac.doFinal(signingInput.toByteArray(Charsets.UTF_8))))
+            } catch (_: Exception) { }
         }
         return candidates.distinct()
     }
 
-    private fun messagesJson(messages: List<ChatMessage>): JSONArray =
+    private fun applyHeaders(builder: Request.Builder, settings: AppSettings, token: String): Request.Builder {
+        val auth = authHeader(settings)
+        if (auth != null && token.isNotBlank()) {
+            val value = if (auth.second.isBlank()) token else auth.second + " " + token
+            builder.header(auth.first, value)
+        }
+        if (settings.apiProtocol == "anthropic_messages") builder.header("anthropic-version", ANTHROPIC_VERSION)
+        builder.header("Accept", "text/event-stream, application/json")
+        return builder
+    }
+
+    private fun textMessages(messages: List<ChatMessage>): JSONArray =
         JSONArray().apply {
-            messages.filter { it.content.isNotBlank() && it.role in listOf("system", "user", "assistant") }
+            messages.filter { it.content.isNotBlank() && it.role in listOf("user", "assistant", "system") }
                 .takeLast(60)
                 .forEach { put(JSONObject().put("role", it.role).put("content", it.content)) }
         }
 
-    private fun requestBody(
-        settings: AppSettings,
-        messages: List<ChatMessage>,
-        streaming: Boolean
-    ): String {
-        val all = messages.filter { it.content.isNotBlank() && it.role in listOf("system", "user", "assistant") }
-            .takeLast(60)
-        return when (protocol(settings)) {
-            Protocol.OPENAI -> {
-                val body = JSONObject()
-                    .put("model", settings.model.trim())
-                    .put("messages", messagesJson(all))
-                    .put("stream", streaming)
-                    .put("max_tokens", settings.maxTokens.coerceIn(1, 16384))
-                if (settings.sendReasoning && settings.reasoning != "auto") {
-                    if (settings.provider.contains("智谱")) {
-                        body.put("thinking", JSONObject().put("type", "enabled"))
-                    } else {
-                        body.put("reasoning_effort", settings.reasoning)
-                    }
-                }
-                body.toString()
-            }
-            Protocol.ANTHROPIC -> {
-                val systemText = all.filter { it.role == "system" }.joinToString("\n") { it.content }
-                val chat = JSONArray().apply {
-                    all.filter { it.role == "user" || it.role == "assistant" }.forEach {
-                        put(JSONObject()
-                            .put("role", it.role)
-                            .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", it.content))))
-                    }
-                }
-                JSONObject().apply {
-                    put("model", settings.model.trim())
-                    put("max_tokens", settings.maxTokens.coerceIn(1, 16384))
-                    put("messages", chat)
-                    put("stream", streaming)
-                    if (systemText.isNotBlank()) put("system", systemText)
+    private fun requestJson(settings: AppSettings, messages: List<ChatMessage>, stream: Boolean): JSONObject {
+        val model = settings.model.trim()
+        require(model.isNotBlank()) { "请先填写模型 ID" }
+        val limit = settings.maxTokens.coerceIn(1, 8192)
+        val source = textMessages(messages)
+        return when (settings.apiProtocol) {
+            "openai_responses" -> JSONObject().put("model", model).put("input", source)
+                .put("max_output_tokens", limit).put("stream", stream).apply {
                     if (settings.sendReasoning && settings.reasoning != "auto") {
-                        // The Messages API uses an explicit thinking budget, not reasoning_effort.
-                        val budget = when (settings.reasoning) {
-                            "low" -> 1024
-                            "high" -> minOf(8192, settings.maxTokens / 2)
-                            else -> 2048
-                        }
-                        if (settings.maxTokens > budget) {
-                            put("thinking", JSONObject().put("type", "enabled").put("budget_tokens", budget))
-                        }
-                    }
-                }.toString()
-            }
-            Protocol.GEMINI -> {
-                val systemText = all.filter { it.role == "system" }.joinToString("\n") { it.content }
-                val contents = JSONArray().apply {
-                    all.filter { it.role == "user" || it.role == "assistant" }.forEach { message ->
-                        put(JSONObject()
-                            .put("role", if (message.role == "assistant") "model" else "user")
-                            .put("parts", JSONArray().put(JSONObject().put("text", message.content))))
+                        put("reasoning", JSONObject().put("effort", settings.reasoning))
                     }
                 }
-                JSONObject().apply {
-                    if (systemText.isNotBlank()) put(
-                        "systemInstruction",
-                        JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemText)))
-                    )
-                    put("contents", contents)
-                    put("generationConfig", JSONObject().put("maxOutputTokens", settings.maxTokens.coerceIn(1, 16384)))
-                }.toString()
+            "anthropic_messages" -> {
+                val system = (0 until source.length()).mapNotNull { i ->
+                    val item = source.optJSONObject(i) ?: return@mapNotNull null
+                    if (item.optString("role") == "system") item.optString("content") else null
+                }.joinToString("\n")
+                val userAssistant = JSONArray().apply {
+                    for (i in 0 until source.length()) {
+                        val item = source.optJSONObject(i) ?: continue
+                        if (item.optString("role") in listOf("user", "assistant")) put(item)
+                    }
+                }
+                JSONObject().put("model", model).put("max_tokens", limit)
+                    .put("messages", userAssistant).put("stream", stream)
+                    .apply { if (system.isNotBlank()) put("system", system) }
             }
+            "gemini_generate" -> {
+                val systemParts = JSONArray()
+                val contents = JSONArray()
+                for (i in 0 until source.length()) {
+                    val item = source.optJSONObject(i) ?: continue
+                    val role = item.optString("role")
+                    val part = JSONArray().put(JSONObject().put("text", item.optString("content")))
+                    if (role == "system") systemParts.put(JSONObject().put("text", item.optString("content")))
+                    else contents.put(JSONObject().put("role", if (role == "assistant") "model" else "user").put("parts", part))
+                }
+                JSONObject().put("contents", contents)
+                    .put("generationConfig", JSONObject().put("maxOutputTokens", limit))
+                    .apply {
+                        if (systemParts.length() > 0) put("systemInstruction", JSONObject().put("parts", systemParts))
+                    }
+            }
+            else -> JSONObject().put("model", model).put("messages", source)
+                .put("stream", stream).put("max_tokens", limit).apply {
+                    if (settings.sendReasoning && settings.reasoning != "auto") {
+                        if (settings.provider.contains("智谱")) put("thinking", JSONObject().put("type", "enabled"))
+                        else put("reasoning_effort", settings.reasoning)
+                    }
+                }
         }
     }
 
-    private fun buildRequest(
-        settings: AppSettings,
-        token: String,
-        body: String,
-        streaming: Boolean
-    ): Request {
-        val builder: Request.Builder
-        val url: String
-        when (protocol(settings)) {
-            Protocol.OPENAI -> {
-                url = openAiChatUrl(settings)
-                builder = Request.Builder().url(url).header("Authorization", "Bearer $token")
-            }
-            Protocol.ANTHROPIC -> {
-                url = anthropicMessagesUrl(settings)
-                builder = Request.Builder().url(url)
-                    .header("x-api-key", token)
-                    .header("anthropic-version", "2026-10-21")
-            }
-            Protocol.GEMINI -> {
-                url = geminiGenerateUrl(settings, streaming).toString()
-                builder = Request.Builder().url(url).header("x-goog-api-key", token)
-            }
-        }
-        return builder
+    private fun buildRequest(settings: AppSettings, token: String, messages: List<ChatMessage>, stream: Boolean): Request {
+        val body = requestJson(settings, messages, stream).toString()
+        val request = Request.Builder().url(chatUrl(settings, stream))
             .header("Content-Type", "application/json")
-            .header("Accept", if (streaming) "text/event-stream, application/json" else "application/json")
             .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
-            .build()
+        return applyHeaders(request, settings, token).build()
     }
 
-    private fun executeWithAuth(
-        settings: AppSettings,
-        apiKey: String,
-        body: String,
-        streaming: Boolean
-    ): okhttp3.Response {
+    private fun buildModelsRequest(settings: AppSettings, token: String): Request {
+        return applyHeaders(Request.Builder().url(modelsUrl(settings)).get(), settings, token).build()
+    }
+
+    private fun executeAuthenticated(settings: AppSettings, apiKey: String, messages: List<ChatMessage>, stream: Boolean): Response {
         val candidates = authCandidates(settings, apiKey)
         for ((index, token) in candidates.withIndex()) {
-            val response = client.newCall(buildRequest(settings, token, body, streaming)).execute()
+            val response = client.newCall(buildRequest(settings, token, messages, stream)).execute()
             if (response.code == 401 && index < candidates.lastIndex) {
                 response.close()
                 continue
             }
             return response
         }
-        throw IllegalStateException("API 鉴权请求未能建立")
+        throw IllegalStateException("API 请求未能建立")
     }
 
-    private fun modelsUrl(settings: AppSettings): HttpUrl {
-        return when (protocol(settings)) {
-            Protocol.OPENAI -> {
-                val base = baseUrl(settings)
-                val url = when {
-                    base.endsWith("/models", true) -> base
-                    base.endsWith("/chat/completions", true) -> base.substringBeforeLast("/chat/completions") + "/models"
-                    Regex("/v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> "$base/models"
-                    base.endsWith("/api/paas/v4", true) || base.endsWith("/api/coding/paas/v4", true) -> "$base/models"
-                    base.endsWith("/openai", true) || settings.provider.contains("DeepSeek", true) -> "$base/models"
-                    else -> "$base/v1/models"
-                }
-                url.toHttpUrl()
-            }
-            Protocol.ANTHROPIC -> {
-                val base = baseUrl(settings)
-                val url = when {
-                    base.endsWith("/v1/models", true) -> base
-                    base.endsWith("/v1", true) -> "$base/models"
-                    else -> "$base/v1/models"
-                }
-                url.toHttpUrl().newBuilder().addQueryParameter("limit", "100").build()
-            }
-            Protocol.GEMINI -> {
-                val base = baseUrl(settings)
-                val root = base.removeSuffix("/v1beta").removeSuffix("/v1")
-                val version = if (base.endsWith("/v1", true)) "/v1" else "/v1beta"
-                "$root$version/models".toHttpUrl().newBuilder().addQueryParameter("pageSize", "100").build()
-            }
-        }
+    private fun extractText(item: JSONObject?, key: String = "text"): String {
+        val value = item?.opt(key)
+        return if (value is String && value.isNotBlank()) value else ""
     }
 
-    private fun modelsRequest(settings: AppSettings, token: String): Request {
-        val builder = Request.Builder().url(modelsUrl(settings)).header("Accept", "application/json")
-        when (protocol(settings)) {
-            Protocol.OPENAI -> builder.header("Authorization", "Bearer $token")
-            Protocol.ANTHROPIC -> builder.header("x-api-key", token).header("anthropic-version", "2026-10-21")
-            Protocol.GEMINI -> builder.header("x-goog-api-key", token)
-        }
-        return builder.get().build()
-    }
-
-    suspend fun fetchModels(settings: AppSettings, apiKey: String): List<String> =
-        withContext(Dispatchers.IO) {
-            val candidates = authCandidates(settings, apiKey)
-            var response: okhttp3.Response? = null
-            for ((index, token) in candidates.withIndex()) {
-                val current = client.newCall(modelsRequest(settings, token)).execute()
-                if (current.code == 401 && index < candidates.lastIndex) {
-                    current.close()
-                    continue
-                }
-                response = current
-                break
-            }
-            val finalResponse = response ?: throw IllegalStateException("模型列表请求未能建立")
-            finalResponse.use {
-                val raw = it.body?.string().orEmpty()
-                if (!it.isSuccessful) throw IllegalStateException(errorMessage(it.code, raw, it.message))
-                val root = JSONObject(raw)
-                val values = when (protocol(settings)) {
-                    Protocol.OPENAI, Protocol.ANTHROPIC -> root.optJSONArray("data")
-                        ?: root.optJSONArray("models")
-                    Protocol.GEMINI -> root.optJSONArray("models")
-                } ?: throw IllegalStateException("服务商没有提供标准模型列表接口。你可以手动输入模型 ID。")
-                val result = (0 until values.length()).mapNotNull { i ->
-                    val item = values.optJSONObject(i) ?: return@mapNotNull null
-                    val id = when (protocol(settings)) {
-                        Protocol.GEMINI -> item.optString("name").removePrefix("models/")
-                        else -> item.optString("id")
-                    }
-                    id.takeIf { it.isNotBlank() && it != "null" }
-                }.distinct().sorted()
-                if (result.isEmpty()) throw IllegalStateException("接口返回空模型列表。你可以手动输入模型 ID。")
-                result
-            }
-        }
-
-    suspend fun testConnection(settings: AppSettings, apiKey: String): String =
-        withContext(Dispatchers.IO) {
-            if (settings.model.isNotBlank()) {
-                complete(
-                    settings.copy(maxTokens = 16, reasoning = "auto", sendReasoning = false),
-                    apiKey,
-                    "请只回复 OK"
-                )
-                "聊天接口连接成功"
-            } else {
-                val models = fetchModels(settings, apiKey)
-                "连接成功 · 获取到 ${models.size} 个模型"
-            }
-        }
-
-    private fun parseText(json: JSONObject, protocol: Protocol): String {
+    private fun parseResponseText(protocol: String, raw: String): String {
+        val root = JSONObject(raw)
         return when (protocol) {
-            Protocol.OPENAI -> {
-                val choices = json.optJSONArray("choices")
-                val message = choices?.optJSONObject(0)?.optJSONObject("message")
-                when (val content = message?.opt("content")) {
+            "anthropic_messages" -> {
+                val content = root.optJSONArray("content") ?: JSONArray()
+                (0 until content.length()).mapNotNull { i ->
+                    val item = content.optJSONObject(i) ?: return@mapNotNull null
+                    if (item.optString("type") == "text") extractText(item) else null
+                }.joinToString("")
+            }
+            "gemini_generate" -> {
+                val parts = root.optJSONArray("candidates")?.optJSONObject(0)
+                    ?.optJSONObject("content")?.optJSONArray("parts") ?: JSONArray()
+                (0 until parts.length()).mapNotNull { i -> extractText(parts.optJSONObject(i)) }.joinToString("")
+            }
+            "openai_responses" -> {
+                val direct = root.optString("output_text")
+                if (direct.isNotBlank() && direct != "null") direct else {
+                    val output = root.optJSONArray("output") ?: JSONArray()
+                    buildString {
+                        for (i in 0 until output.length()) {
+                            val content = output.optJSONObject(i)?.optJSONArray("content") ?: continue
+                            for (j in 0 until content.length()) {
+                                val item = content.optJSONObject(j) ?: continue
+                                if (item.optString("type") == "output_text") append(item.optString("text"))
+                            }
+                        }
+                    }
+                }
+            }
+            else -> {
+                val content = root.optJSONArray("choices")?.optJSONObject(0)
+                    ?.optJSONObject("message")?.opt("content")
+                when (content) {
                     is String -> content
                     is JSONArray -> (0 until content.length()).mapNotNull { i ->
-                        content.optJSONObject(i)?.optString("text")?.takeIf { it.isNotBlank() }
+                        extractText(content.optJSONObject(i))
                     }.joinToString("")
                     else -> ""
                 }
             }
-            Protocol.ANTHROPIC -> {
-                val blocks = json.optJSONArray("content") ?: JSONArray()
-                (0 until blocks.length()).mapNotNull { i ->
-                    blocks.optJSONObject(i)?.takeIf { it.optString("type") == "text" }?.optString("text")
-                }.joinToString("")
+        }
+    }
+
+    private fun sseChunk(protocol: String, eventName: String, raw: String): String {
+        if (raw == "[DONE]" || raw.isBlank()) return ""
+        val json = try { JSONObject(raw) } catch (_: Exception) { return "" }
+        return when (protocol) {
+            "anthropic_messages" -> {
+                val type = json.optString("type").ifBlank { eventName }
+                if (type == "content_block_delta") {
+                    val delta = json.optJSONObject("delta")
+                    if (delta?.optString("type") == "text_delta") delta.optString("text") else ""
+                } else ""
             }
-            Protocol.GEMINI -> {
+            "gemini_generate" -> {
                 val parts = json.optJSONArray("candidates")?.optJSONObject(0)
                     ?.optJSONObject("content")?.optJSONArray("parts") ?: JSONArray()
-                (0 until parts.length()).mapNotNull { i ->
-                    parts.optJSONObject(i)?.optString("text")?.takeIf { it.isNotBlank() }
-                }.joinToString("")
+                (0 until parts.length()).mapNotNull { i -> extractText(parts.optJSONObject(i)) }.joinToString("")
+            }
+            "openai_responses" -> {
+                val type = json.optString("type").ifBlank { eventName }
+                if (type == "response.output_text.delta") json.optString("delta") else ""
+            }
+            else -> {
+                val delta = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("delta")
+                when (val content = delta?.opt("content")) {
+                    is String -> content
+                    is JSONArray -> (0 until content.length()).mapNotNull { i -> extractText(content.optJSONObject(i)) }.joinToString("")
+                    else -> ""
+                }
             }
         }
     }
 
-    private fun parseStreamData(line: String, protocol: Protocol): String {
-        val payload = line.removePrefix("data:").trim()
-        if (payload.isBlank() || payload == "[DONE]") return ""
-        val json = try { JSONObject(payload) } catch (_: Exception) { return "" }
-        return when (protocol) {
-            Protocol.OPENAI -> {
-                val delta = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("delta")
-                when {
-                    delta?.opt("content") is String -> delta.optString("content")
-                    delta?.optJSONArray("content") != null -> {
-                        val parts = delta.optJSONArray("content")!!
-                        (0 until parts.length()).mapNotNull { i ->
-                            parts.optJSONObject(i)?.optString("text")?.takeIf { it.isNotBlank() }
-                        }.joinToString("")
-                    }
-                    else -> ""
-                }
-            }
-            Protocol.ANTHROPIC -> {
-                if (json.optString("type") == "content_block_delta") {
-                    json.optJSONObject("delta")?.optString("text").orEmpty()
-                } else ""
-            }
-            Protocol.GEMINI -> parseText(json, Protocol.GEMINI)
+    private suspend fun readStream(response: Response, protocol: String, onChunk: suspend (String) -> Unit): Boolean {
+        val body = response.body ?: throw IllegalStateException("API 返回了空响应")
+        val contentType = response.header("Content-Type").orEmpty()
+        if (!contentType.contains("text/event-stream", true)) {
+            val text = try { parseResponseText(protocol, body.string()) } catch (_: Exception) { "" }
+            if (text.isNotBlank()) onChunk(text)
+            return text.isNotBlank()
         }
+        val source = body.source()
+        var eventName = ""
+        val dataLines = mutableListOf<String>()
+        var received = false
+        suspend fun flushEvent() {
+            if (dataLines.isEmpty()) {
+                eventName = ""
+                return
+            }
+            val chunk = sseChunk(protocol, eventName, dataLines.joinToString("\n"))
+            if (chunk.isNotEmpty()) {
+                received = true
+                onChunk(chunk)
+            }
+            dataLines.clear()
+            eventName = ""
+        }
+        while (true) {
+            val line = source.readUtf8Line() ?: break
+            when {
+                line.isEmpty() -> flushEvent()
+                line.startsWith(":") -> Unit
+                line.startsWith("event:") -> eventName = line.substringAfter("event:").trim()
+                line.startsWith("data:") -> dataLines.add(line.substringAfter("data:").trimStart())
+            }
+        }
+        flushEvent()
+        return received
     }
 
     suspend fun streamChat(
@@ -436,47 +391,56 @@ object ApiClient {
         messages: List<ChatMessage>,
         onChunk: suspend (String) -> Unit
     ) = withContext(Dispatchers.IO) {
-        require(settings.model.isNotBlank()) { "请先填写模型 ID" }
-        val body = requestBody(settings, messages, true)
-        executeWithAuth(settings, apiKey, body, true).use { response ->
+        executeAuthenticated(settings, apiKey, messages.filter { it.content.isNotBlank() }.takeLast(60), true).use { response ->
             if (!response.isSuccessful) {
-                val raw = response.body?.string().orEmpty()
-                throw IllegalStateException(errorMessage(response.code, raw, response.message))
+                throw IllegalStateException(errorMessage(response.code, response.body?.string().orEmpty(), response.message))
             }
-            val source = response.body?.source() ?: throw IllegalStateException("API 返回空响应")
-            var received = false
-            while (!source.exhausted()) {
-                val line = source.readUtf8Line() ?: continue
-                if (!line.startsWith("data:")) continue
-                if (line.trim() == "data: [DONE]") break
-                val text = parseStreamData(line, protocol(settings))
-                if (text.isNotEmpty()) {
-                    received = true
-                    onChunk(text)
-                }
+            if (!readStream(response, settings.apiProtocol, onChunk)) {
+                throw IllegalStateException("服务器已连接，但没有返回可显示的文本。请检查 API 协议、模型 ID，以及服务商是否支持流式输出。")
             }
-            if (!received) throw IllegalStateException(
-                "连接成功，但服务商没有返回文本。请检查协议类型、模型 ID、API 权限和服务商的流式接口支持情况。"
-            )
         }
     }
 
     suspend fun complete(settings: AppSettings, apiKey: String, prompt: String): String =
-        completeMessages(settings, apiKey, listOf(ChatMessage("user", prompt)))
-
-    suspend fun completeMessages(
-        settings: AppSettings,
-        apiKey: String,
-        messages: List<ChatMessage>
-    ): String = withContext(Dispatchers.IO) {
-        require(settings.model.isNotBlank()) { "请先填写模型 ID" }
-        val body = requestBody(settings, messages, false)
-        executeWithAuth(settings, apiKey, body, false).use { response ->
-            val raw = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IllegalStateException(errorMessage(response.code, raw, response.message))
-            val result = parseText(JSONObject(raw), protocol(settings))
-            result.takeIf { it.isNotBlank() }
-                ?: throw IllegalStateException("请求成功，但模型没有返回文本。请确认所选协议与模型对应。")
+        withContext(Dispatchers.IO) {
+            executeAuthenticated(settings, apiKey, listOf(ChatMessage("user", prompt)), false).use { response ->
+                val raw = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IllegalStateException(errorMessage(response.code, raw, response.message))
+                parseResponseText(settings.apiProtocol, raw).takeIf { it.isNotBlank() }
+                    ?: throw IllegalStateException("请求成功，但模型未返回可显示的文本。请检查 API 协议和模型能力。")
+            }
         }
-    }
+
+    suspend fun fetchModels(settings: AppSettings, apiKey: String): List<String> =
+        withContext(Dispatchers.IO) {
+            val candidates = authCandidates(settings, apiKey)
+            var finalResponse: Response? = null
+            for ((index, token) in candidates.withIndex()) {
+                val response = client.newCall(buildModelsRequest(settings, token)).execute()
+                if (response.code == 401 && index < candidates.lastIndex) {
+                    response.close()
+                    continue
+                }
+                finalResponse = response
+                break
+            }
+            val response = finalResponse ?: throw IllegalStateException("模型列表请求未能建立")
+            response.use {
+                val raw = it.body?.string().orEmpty()
+                if (!it.isSuccessful) throw IllegalStateException(errorMessage(it.code, raw, it.message))
+                val root = JSONObject(raw)
+                val values = when (settings.apiProtocol) {
+                    "anthropic_messages" -> root.optJSONArray("data")
+                    "gemini_generate" -> root.optJSONArray("models")
+                    else -> root.optJSONArray("data") ?: root.optJSONObject("data")?.optJSONArray("models")
+                } ?: throw IllegalStateException("服务商没有公开标准模型列表接口。请直接手动填写模型 ID。")
+                val ids = (0 until values.length()).mapNotNull { i ->
+                    val item = values.optJSONObject(i) ?: return@mapNotNull null
+                    val rawId = if (settings.apiProtocol == "gemini_generate") item.optString("name") else item.optString("id")
+                    rawId.takeIf { it.isNotBlank() && it != "null" }?.removePrefix("models/")
+                }.distinct().sorted()
+                if (ids.isEmpty()) throw IllegalStateException("服务商返回了空模型列表。你可以手动填写模型 ID。")
+                ids
+            }
+        }
 }
