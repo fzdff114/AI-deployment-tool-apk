@@ -969,6 +969,7 @@ private fun ModelScreen(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreen(
     modifier: Modifier,
@@ -987,10 +988,10 @@ private fun SettingsScreen(
 ) {
     var showApiKey by remember { mutableStateOf(false) }
     var showModelPicker by remember { mutableStateOf(false) }
-    var showProviderMenu by remember { mutableStateOf(false) }
-    var showProtocolMenu by remember { mutableStateOf(false) }
+    var showProviders by remember { mutableStateOf(false) }
+    var showProtocols by remember { mutableStateOf(false) }
     var showAuthDetails by remember { mutableStateOf(false) }
-    val canAuthenticate = settings.authHeaderName.equals("none", true) || apiKey.isNotBlank()
+    val needsKey = !settings.authHeaderName.equals("none", ignoreCase = true)
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 14.dp),
@@ -1003,19 +1004,34 @@ private fun SettingsScreen(
             ThemeChoice("米白", "cream", settings.theme == "cream", Modifier.weight(1f)) { onChange(settings.copy(theme = "cream")) }
             ThemeChoice("黑白", "mono", settings.theme == "mono", Modifier.weight(1f)) { onChange(settings.copy(theme = "mono")) }
         }
+
         HorizontalDivider()
-        Text("API 接口", fontWeight = FontWeight.SemiBold)
+        Text("AI API 配置", fontWeight = FontWeight.SemiBold)
+        Text(
+            when (settings.apiProtocol) {
+                "anthropic_messages" -> "Anthropic Messages：使用 x-api-key 与 anthropic-version 请求头。"
+                "gemini_generate" -> "Google Gemini：使用 x-goog-api-key 与 GenerateContent / StreamGenerateContent。"
+                "openai_responses" -> "OpenAI Responses API：适用于支持 /responses 的模型和网关。"
+                else -> "OpenAI Chat Completions 兼容协议：适用于大量模型厂商、聚合平台、自建网关和 Ollama。"
+            },
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Text("服务商预设", fontWeight = FontWeight.Medium)
         Box {
-            OutlinedButton(onClick = { showProviderMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(settings.provider, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+            OutlinedButton(onClick = { showProviders = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(settings.provider.ifBlank { "选择服务商" }, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
                 Icon(Icons.Default.ExpandMore, contentDescription = null)
             }
-            DropdownMenu(expanded = showProviderMenu, onDismissRequest = { showProviderMenu = false }) {
+            DropdownMenu(expanded = showProviders, onDismissRequest = { showProviders = false }) {
                 API_PROVIDERS.forEach { item ->
                     DropdownMenuItem(
                         text = { Text(item.name) },
                         onClick = {
-                            if (item.name != "自定义") {
+                            if (item.name == "自定义") {
+                                onChange(settings.copy(provider = item.name))
+                            } else {
                                 onChange(
                                     settings.copy(
                                         provider = item.name,
@@ -1026,48 +1042,54 @@ private fun SettingsScreen(
                                         authHeaderPrefix = item.authHeaderPrefix
                                     )
                                 )
-                            } else {
-                                onChange(settings.copy(provider = item.name))
                             }
-                            showProviderMenu = false
+                            showProviders = false
                         }
                     )
                 }
             }
         }
+
+        Text("API 协议", fontWeight = FontWeight.Medium)
         Box {
-            OutlinedButton(onClick = { showProtocolMenu = true }, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { showProtocols = true }, modifier = Modifier.fillMaxWidth()) {
                 Text(apiProtocolLabel(settings.apiProtocol), modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
                 Icon(Icons.Default.ExpandMore, contentDescription = null)
             }
-            DropdownMenu(expanded = showProtocolMenu, onDismissRequest = { showProtocolMenu = false }) {
+            DropdownMenu(expanded = showProtocols, onDismissRequest = { showProtocols = false }) {
                 API_PROTOCOLS.forEach { item ->
                     DropdownMenuItem(
                         text = { Text(item.second) },
                         onClick = {
                             onChange(
                                 settings.copy(
+                                    provider = "自定义",
                                     apiProtocol = item.first,
                                     authHeaderName = "auto",
                                     authHeaderPrefix = "Bearer"
                                 )
                             )
-                            showProtocolMenu = false
+                            showProtocols = false
                         }
                     )
                 }
             }
         }
-        Text(
-            "OpenAI 兼容协议可连接 DeepSeek、OpenRouter、智谱、Groq、Mistral、xAI、Together、SiliconFlow、阿里云百炼等兼容网关。Claude 和 Gemini 使用各自原生协议。",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+
         OutlinedTextField(
             value = settings.endpoint,
             onValueChange = { onChange(settings.copy(endpoint = it)) },
             label = { Text("API 基础地址") },
             placeholder = { Text("https://api.example.com/v1") },
+            supportingText = {
+                Text(
+                    when (settings.apiProtocol) {
+                        "anthropic_messages" -> "Anthropic 默认：https://api.anthropic.com"
+                        "gemini_generate" -> "Gemini 默认：https://generativelanguage.googleapis.com/v1beta"
+                        else -> "填写服务商提供的 API 基础地址，不需要自己拼接聊天路径"
+                    }
+                )
+            },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
@@ -1075,31 +1097,39 @@ private fun SettingsScreen(
             value = settings.model,
             onValueChange = { onChange(settings.copy(model = it)) },
             label = { Text("模型 ID（自行选择）") },
-            placeholder = { Text("输入模型 ID，或从接口模型列表选择") },
+            placeholder = { Text("从模型目录复制，或通过下方模型列表获取") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
         OutlinedTextField(
             value = apiKey,
             onValueChange = onApiKey,
-            label = { Text(if (settings.authHeaderName.equals("none", true)) "API Key（可留空）" else "API Key") },
-            placeholder = { Text("粘贴当前服务商的完整 API Key") },
+            label = { Text(if (needsKey) "API Key / Token" else "API Key（当前认证模式可留空）") },
+            placeholder = { Text("粘贴服务商控制台生成的完整密钥") },
             singleLine = true,
             visualTransformation = if (showApiKey) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
-                TextButton(onClick = { showApiKey = !showApiKey }) { Text(if (showApiKey) "隐藏" else "显示") }
+                TextButton(onClick = { showApiKey = !showApiKey }) {
+                    Text(if (showApiKey) "隐藏" else "显示")
+                }
             },
             modifier = Modifier.fillMaxWidth()
         )
+        Text(
+            "密钥使用 Android Keystore 加密保存在本机。不会上传到 GitHub 项目。",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
         TextButton(onClick = { showAuthDetails = !showAuthDetails }, modifier = Modifier.align(Alignment.Start)) {
-            Text(if (showAuthDetails) "收起高级认证" else "高级认证设置")
+            Text(if (showAuthDetails) "收起高级认证选项" else "高级认证选项")
         }
         if (showAuthDetails) {
             OutlinedTextField(
                 value = settings.authHeaderName,
                 onValueChange = { onChange(settings.copy(authHeaderName = it)) },
                 label = { Text("认证请求头名称") },
-                supportingText = { Text("auto / Authorization / x-api-key / x-goog-api-key / none，也支持自定义请求头名称") },
+                supportingText = { Text("auto、Authorization、x-api-key、x-goog-api-key 或 none") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1107,31 +1137,27 @@ private fun SettingsScreen(
                 value = settings.authHeaderPrefix,
                 onValueChange = { onChange(settings.copy(authHeaderPrefix = it)) },
                 label = { Text("认证前缀") },
-                supportingText = { Text("Bearer Token 常用 Bearer；x-api-key 和 x-goog-api-key 通常留空") },
+                supportingText = { Text("常见为 Bearer；x-api-key 和 x-goog-api-key 通常留空") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        Text(
-            "API Key 通过 Android Keystore 加密保存在本机。密钥不会放入请求网址；认证头会按所选协议发送。",
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
                 onClick = onTest,
-                enabled = !busy && canAuthenticate && settings.endpoint.isNotBlank() && settings.model.isNotBlank(),
+                enabled = !busy && settings.model.isNotBlank() && settings.endpoint.isNotBlank() && (!needsKey || apiKey.isNotBlank()),
                 modifier = Modifier.weight(1f).height(48.dp)
-            ) { Text(if (busy) "请求中…" else "测试当前模型") }
+            ) { Text(if (busy) "测试中…" else "测试当前模型") }
             Button(
                 onClick = onSave,
-                enabled = settings.endpoint.isNotBlank() && (canAuthenticate || apiKey.isNotBlank()),
+                enabled = settings.endpoint.isNotBlank() && (!needsKey || apiKey.isNotBlank()),
                 modifier = Modifier.weight(1f).height(48.dp)
             ) { Text("保存配置") }
         }
         OutlinedButton(
             onClick = onFetchModels,
-            enabled = !busy && canAuthenticate && settings.endpoint.isNotBlank(),
+            enabled = !busy && settings.endpoint.isNotBlank() && (!needsKey || apiKey.isNotBlank()),
             modifier = Modifier.fillMaxWidth().height(46.dp)
         ) { Text(if (busy) "正在读取模型…" else "获取服务商模型列表") }
         if (availableModels.isNotEmpty()) {
@@ -1156,6 +1182,7 @@ private fun SettingsScreen(
                 confirmButton = { TextButton(onClick = { showModelPicker = false }) { Text("关闭") } }
             )
         }
+
         if (status.isNotBlank()) {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Text(status, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
@@ -1166,6 +1193,7 @@ private fun SettingsScreen(
                 Text(error, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
             }
         }
+
         HorizontalDivider()
         Text("对话额度", fontWeight = FontWeight.SemiBold)
         Text("单次回复上限：${settings.maxTokens} tokens")
@@ -1183,6 +1211,7 @@ private fun SettingsScreen(
             steps = 127
         )
         TextButton(onClick = { onChange(settings.copy(sessionUsed = 0)) }) { Text("重置当前额度计数") }
+
         HorizontalDivider()
         Text("推理强度", fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1198,15 +1227,16 @@ private fun SettingsScreen(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("发送协议推理参数")
+                Text("发送模型推理参数")
                 Text(
-                    "仅部分协议和模型支持；遇到参数校验错误时关闭此选项。",
+                    "仅部分 API 协议和模型支持；遇到参数不兼容时，请关闭。",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Switch(checked = settings.sendReasoning, onCheckedChange = { onChange(settings.copy(sendReasoning = it)) })
         }
+
         HorizontalDivider()
         Text("隐私与存储", fontWeight = FontWeight.SemiBold)
         Text(
