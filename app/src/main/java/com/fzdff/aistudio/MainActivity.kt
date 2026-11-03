@@ -567,6 +567,7 @@ private fun importModel(context: Context, uri: Uri): File {
     return target
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SetupScreen(
     initial: AppSettings,
@@ -575,115 +576,149 @@ private fun SetupScreen(
     onLocalOnly: () -> Unit
 ) {
     var provider by remember { mutableStateOf(initial.provider) }
-    var apiProtocol by remember { mutableStateOf(initial.apiProtocol) }
     var endpoint by remember { mutableStateOf(initial.endpoint) }
     var model by remember { mutableStateOf(initial.model) }
+    var protocol by remember { mutableStateOf(initial.apiProtocol) }
+    var authHeader by remember { mutableStateOf(initial.authHeaderName) }
+    var authPrefix by remember { mutableStateOf(initial.authHeaderPrefix) }
     var key by remember { mutableStateOf(initialKey) }
     var showKey by remember { mutableStateOf(false) }
-    val providers = listOf(
-        Triple("OpenAI", "https://api.openai.com/v1", ""),
-        Triple("DeepSeek", "https://api.deepseek.com", ""),
-        Triple("OpenRouter", "https://openrouter.ai/api/v1", ""),
-        Triple("智谱标准 API", "https://open.bigmodel.cn/api/paas/v4", ""),
-        Triple("智谱 Coding Plan", "https://open.bigmodel.cn/api/coding/paas/v4", ""),
-        Triple("Anthropic Claude", "https://api.anthropic.com", ""),
-        Triple("Google Gemini", "https://generativelanguage.googleapis.com/v1beta", ""),
-        Triple("Ollama", "http://localhost:11434/v1", ""),
-        Triple("自定义", endpoint, model)
-    )
+    var showProviders by remember { mutableStateOf(false) }
+    var showProtocols by remember { mutableStateOf(false) }
+    var showAuthDetails by remember { mutableStateOf(false) }
+
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(48.dp))
+        Spacer(Modifier.height(42.dp))
         Box(Modifier.size(72.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
             Icon(Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(36.dp))
         }
         Spacer(Modifier.height(20.dp))
         Text("开始使用 AI Studio", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text("支持 OpenAI 兼容接口、Anthropic Claude、Google Gemini，以及自定义 API 网关。模型 ID 由你自己选择。", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(28.dp))
+        Text(
+            "接入云端 AI API，或稍后导入本地 GGUF 模型。支持多种 API 协议和自定义服务地址。",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(24.dp))
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("选择服务商或网关", fontWeight = FontWeight.SemiBold)
-                providers.chunked(2).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEach { item ->
-                            FilterChip(
-                                selected = provider == item.first,
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("选择服务商", fontWeight = FontWeight.SemiBold)
+                Box {
+                    OutlinedButton(onClick = { showProviders = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(provider.ifBlank { "选择服务商" }, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+                        Icon(Icons.Default.ExpandMore, contentDescription = null)
+                    }
+                    DropdownMenu(expanded = showProviders, onDismissRequest = { showProviders = false }) {
+                        API_PROVIDERS.forEach { item ->
+                            DropdownMenuItem(
+                                text = { Text(item.name) },
                                 onClick = {
-                                    provider = item.first
-                                    apiProtocol = when {
-                                        item.first.contains("Claude") -> "anthropic"
-                                        item.first.contains("Gemini") -> "gemini"
-                                        else -> "openai"
+                                    provider = item.name
+                                    if (item.name != "自定义") {
+                                        endpoint = item.endpoint
+                                        protocol = item.protocol
+                                        authHeader = item.authHeaderName
+                                        authPrefix = item.authHeaderPrefix
+                                        model = ""
                                     }
-                                    if (item.first != "自定义") { endpoint = item.second; model = "" }
-                                },
-                                label = { Text(item.first) },
-                                modifier = Modifier.weight(1f)
+                                    showProviders = false
+                                }
                             )
                         }
-                        if (row.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
-                Text("API 协议", fontWeight = FontWeight.Medium)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                    FilterChip(
-                        selected = apiProtocol == "openai",
-                        onClick = {
-                            apiProtocol = "openai"
-                            provider = "自定义"
-                            if (endpoint.isBlank() || endpoint == "https://api.anthropic.com" || endpoint == "https://generativelanguage.googleapis.com/v1beta") {
-                                endpoint = "https://api.openai.com/v1"
-                            }
-                        },
-                        label = { Text("OpenAI 兼容") }
-                    )
-                    FilterChip(
-                        selected = apiProtocol == "anthropic",
-                        onClick = {
-                            apiProtocol = "anthropic"
-                            provider = "自定义"
-                            if (endpoint.isBlank() || endpoint == "https://api.openai.com/v1") endpoint = "https://api.anthropic.com"
-                        },
-                        label = { Text("Anthropic") }
-                    )
-                    FilterChip(
-                        selected = apiProtocol == "gemini",
-                        onClick = {
-                            apiProtocol = "gemini"
-                            provider = "自定义"
-                            if (endpoint.isBlank() || endpoint == "https://api.openai.com/v1") endpoint = "https://generativelanguage.googleapis.com/v1beta"
-                        },
-                        label = { Text("Gemini") }
-                    )
+                Box {
+                    OutlinedButton(onClick = { showProtocols = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(apiProtocolLabel(protocol), modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+                        Icon(Icons.Default.ExpandMore, contentDescription = null)
+                    }
+                    DropdownMenu(expanded = showProtocols, onDismissRequest = { showProtocols = false }) {
+                        API_PROTOCOLS.forEach { item ->
+                            DropdownMenuItem(
+                                text = { Text(item.second) },
+                                onClick = {
+                                    protocol = item.first
+                                    authHeader = "auto"
+                                    authPrefix = "Bearer"
+                                    showProtocols = false
+                                }
+                            )
+                        }
+                    }
                 }
-                OutlinedTextField(endpoint, { endpoint = it }, label = { Text("API 地址") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(model, { model = it }, label = { Text("模型 ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(
-                    key, { key = it }, label = { Text("API Key") }, singleLine = true,
+                    endpoint, { endpoint = it },
+                    label = { Text("API 基础地址") },
+                    placeholder = { Text("https://api.example.com/v1") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    model, { model = it },
+                    label = { Text("模型 ID（自行选择）") },
+                    placeholder = { Text("从服务商控制台复制模型 ID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    key, { key = it },
+                    label = { Text(if (authHeader == "none") "API Key（可留空）" else "API Key") },
+                    singleLine = true,
                     visualTransformation = if (showKey) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = { TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "隐藏" else "显示") } }
                 )
-                Text("API Key 使用 Android Keystore 加密保存在本机。首次也可以先跳过，稍后在设置中配置。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { showAuthDetails = !showAuthDetails }, modifier = Modifier.align(Alignment.Start)) {
+                    Text(if (showAuthDetails) "收起认证选项" else "高级认证选项")
+                }
+                if (showAuthDetails) {
+                    OutlinedTextField(
+                        authHeader, { authHeader = it },
+                        label = { Text("认证请求头名称") },
+                        supportingText = { Text("auto、Authorization、x-api-key、x-goog-api-key 或 none") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        authPrefix, { authPrefix = it },
+                        label = { Text("认证前缀") },
+                        supportingText = { Text("常见 Bearer；x-api-key 和 x-goog-api-key 通常留空") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                Text("密钥使用 Android Keystore 加密保存在本机。协议选择错误时，请按服务商文档切换接口协议。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(
-                    onClick = { onStart(initial.copy(provider = provider, apiProtocol = apiProtocol, endpoint = endpoint.trim(), model = model.trim()), key.trim()) },
-                    enabled = endpoint.isNotBlank() && model.isNotBlank() && key.isNotBlank(),
+                    onClick = {
+                        onStart(
+                            initial.copy(
+                                provider = provider,
+                                endpoint = endpoint.trim(),
+                                model = model.trim(),
+                                apiProtocol = protocol,
+                                authHeaderName = authHeader.trim().ifBlank { "auto" },
+                                authHeaderPrefix = authPrefix.trim()
+                            ),
+                            key.trim()
+                        )
+                    },
+                    enabled = endpoint.isNotBlank() && model.isNotBlank() &&
+                        (authHeader.equals("none", true) || key.isNotBlank()),
                     modifier = Modifier.fillMaxWidth().height(50.dp)
                 ) { Text("保存并开始聊天") }
                 TextButton(onClick = onLocalOnly, modifier = Modifier.fillMaxWidth()) { Text("暂时跳过，稍后导入本地模型") }
             }
         }
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(24.dp))
         Text("AI Studio · 原生 Android", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(24.dp))
     }
 }
 
-@Composable
 private fun ChatScreen(
     modifier: Modifier,
     messages: SnapshotStateList<ChatMessage>,
