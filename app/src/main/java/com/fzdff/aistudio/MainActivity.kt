@@ -592,6 +592,38 @@ private fun SetupScreen(
                         if (row.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
+                Text("API 协议", fontWeight = FontWeight.Medium)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    FilterChip(
+                        selected = apiProtocol == "openai",
+                        onClick = {
+                            apiProtocol = "openai"
+                            provider = "自定义"
+                            if (endpoint.isBlank() || endpoint == "https://api.anthropic.com" || endpoint == "https://generativelanguage.googleapis.com/v1beta") {
+                                endpoint = "https://api.openai.com/v1"
+                            }
+                        },
+                        label = { Text("OpenAI 兼容") }
+                    )
+                    FilterChip(
+                        selected = apiProtocol == "anthropic",
+                        onClick = {
+                            apiProtocol = "anthropic"
+                            provider = "自定义"
+                            if (endpoint.isBlank() || endpoint == "https://api.openai.com/v1") endpoint = "https://api.anthropic.com"
+                        },
+                        label = { Text("Anthropic") }
+                    )
+                    FilterChip(
+                        selected = apiProtocol == "gemini",
+                        onClick = {
+                            apiProtocol = "gemini"
+                            provider = "自定义"
+                            if (endpoint.isBlank() || endpoint == "https://api.openai.com/v1") endpoint = "https://generativelanguage.googleapis.com/v1beta"
+                        },
+                        label = { Text("Gemini") }
+                    )
+                }
                 OutlinedTextField(endpoint, { endpoint = it }, label = { Text("API 地址") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(model, { model = it }, label = { Text("模型 ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(
