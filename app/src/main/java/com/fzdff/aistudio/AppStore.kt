@@ -102,6 +102,9 @@ object AppStore {
             apiProtocol = p.getString("api_protocol", "openai") ?: "openai",
             endpoint = p.getString("endpoint", "") ?: "",
             model = p.getString("model", "") ?: "",
+            apiProtocol = p.getString("api_protocol", "openai_chat") ?: "openai_chat",
+            authHeaderName = p.getString("auth_header_name", "auto") ?: "auto",
+            authHeaderPrefix = p.getString("auth_header_prefix", "Bearer") ?: "Bearer",
             theme = p.getString("theme", "blue") ?: "blue",
             reasoning = p.getString("reasoning", "medium") ?: "medium",
             sendReasoning = p.getBoolean("send_reasoning", false),
@@ -119,6 +122,9 @@ object AppStore {
             .putString("api_protocol", s.apiProtocol)
             .putString("endpoint", s.endpoint)
             .putString("model", s.model)
+            .putString("api_protocol", s.apiProtocol)
+            .putString("auth_header_name", s.authHeaderName)
+            .putString("auth_header_prefix", s.authHeaderPrefix)
             .putString("theme", s.theme)
             .putString("reasoning", s.reasoning)
             .putBoolean("send_reasoning", s.sendReasoning)
