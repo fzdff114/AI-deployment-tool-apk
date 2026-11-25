@@ -59,7 +59,8 @@ Java_com_fzdff_aistudio_LocalModelEngine_nativeLoad(
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_fzdff_aistudio_LocalModelEngine_nativeGenerate(
-        JNIEnv * env, jobject, jstring promptValue, jint maxTokens, jfloat temperature) {
+        JNIEnv * env, jobject, jstring promptValue, jint maxTokens,
+        jfloat temperature, jfloat topP, jint topK, jfloat repeatPenalty, jint seed) {
     std::lock_guard<std::mutex> guard(g_mutex);
     if (!g_model) return toJString(env, "ERROR: 请先加载本地模型");
     const std::string prompt = fromJString(env, promptValue);
@@ -117,10 +118,19 @@ Java_com_fzdff_aistudio_LocalModelEngine_nativeGenerate(
     }
 
     auto sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
-    llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40));
-    llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.92f, 1));
-    llama_sampler_chain_add(sampler, llama_sampler_init_temp(std::max(0.05f, std::min(1.5f, static_cast<float>(temperature)))));
-    llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+    const int safeTopK = std::max(1, std::min(200, static_cast<int>(topK)));
+    const float safeTopP = std::max(0.05f, std::min(1.0f, static_cast<float>(topP)));
+    const float safeTemperature = std::max(0.05f, std::min(2.0f, static_cast<float>(temperature)));
+    const float safeRepeatPenalty = std::max(1.0f, std::min(2.0f, static_cast<float>(repeatPenalty)));
+    llama_sampler_chain_add(sampler, llama_sampler_init_top_k(safeTopK));
+    llama_sampler_chain_add(sampler, llama_sampler_init_top_p(safeTopP, 1));
+    if (safeRepeatPenalty > 1.0001f) {
+        llama_sampler_chain_add(sampler, llama_sampler_init_penalties(
+            llama_vocab_n_tokens(vocab), 64, safeRepeatPenalty, 0.0f, 0.0f));
+    }
+    llama_sampler_chain_add(sampler, llama_sampler_init_temp(safeTemperature));
+    const uint32_t samplerSeed = seed < 0 ? LLAMA_DEFAULT_SEED : static_cast<uint32_t>(seed);
+    llama_sampler_chain_add(sampler, llama_sampler_init_dist(samplerSeed));
 
     std::string output;
     char piece[2048];
