@@ -175,6 +175,7 @@ private fun AIStudioApp() {
     var workspaceStatus by remember { mutableStateOf("") }
     var apiModels by remember { mutableStateOf<List<String>>(emptyList()) }
     var engine by remember { mutableStateOf<LocalModelEngine?>(null) }
+    var localModels by remember { mutableStateOf(scanLocalModels(context)) }
 
     fun updateSettings(next: AppSettings) {
         settings = next
@@ -351,9 +352,9 @@ private fun AIStudioApp() {
                                             try {
                                                 val assistantIndex = messages.lastIndex
                                                 if (useLocal) {
-                                                    val prompt = buildLocalPrompt(messages.dropLast(1), settings.localModelPath)
+                                                    val prompt = buildLocalPrompt(messages.dropLast(1), settings.localModelPath, settings.localSystemPrompt, settings.localPromptTemplate)
                                                     val result = withContext(Dispatchers.IO) {
-                                                        engine?.nativeGenerate(prompt, settings.maxTokens, 0.7f)
+                                                        engine?.nativeGenerate(prompt, settings.maxTokens, settings.localTemperature, settings.localTopP, settings.localTopK, settings.localRepeatPenalty, -1)
                                                             ?: "ERROR: 本地模型尚未加载"
                                                     }
                                                     if (result.startsWith("ERROR:")) throw IllegalStateException(result.removePrefix("ERROR:").trim())
@@ -403,7 +404,7 @@ private fun AIStudioApp() {
                                         val fullPrompt = "你是资深软件工程师。根据需求生成一个完整、可直接保存使用的文件内容。只输出文件正文，不要解释。文件名：${workspaceName}\n需求：${workspacePrompt}"
                                         workspaceOutput = if (useLocal && localLoaded) {
                                             withContext(Dispatchers.IO) {
-                                                engine?.nativeGenerate("### Instruction:\n$fullPrompt\n\n### Response:\n", settings.maxTokens, 0.6f).orEmpty()
+                                                engine?.nativeGenerate("### Instruction:\n$fullPrompt\n\n### Response:\n", settings.maxTokens, settings.localTemperature, settings.localTopP, settings.localTopK, settings.localRepeatPenalty, -1).orEmpty()
                                             }
                                         } else {
                                             ApiClient.complete(settings, apiKey, fullPrompt)
@@ -417,48 +418,69 @@ private fun AIStudioApp() {
                             onClear = { workspaceOutput = ""; workspaceStatus = "" }
                         )
                         AppTab.MODELS -> ModelScreen(
-                            modifier = Modifier.padding(padding),
-                            settings = settings,
-                            loaded = localLoaded,
-                            busy = isBusy,
-                            status = workspaceStatus,
-                            error = errorText,
-                            onContext = { updateSettings(settings.copy(contextSize = it)) },
-                            onImport = { uri ->
+                            modifier = Modifier.padding(padding), settings = settings, models = localModels,
+                            loaded = localLoaded, busy = isBusy, status = workspaceStatus, error = errorText,
+                            onSettingsChange = { updateSettings(it) },
+                            onSelect = { path ->
+                                if (!localLoaded || path == settings.localModelPath) {
+                                    updateSettings(settings.copy(localModelPath = path))
+                                    workspaceStatus = "已选择模型：${File(path).name}"
+                                } else errorText = "请先卸载当前模型，再切换模型。"
+                            },
+                            onRefresh = { localModels = scanLocalModels(context) },
+                            onDelete = { path ->
+                                if (localLoaded && path == settings.localModelPath) {
+                                    errorText = "请先卸载正在运行的模型，再删除文件。"
+                                } else {
+                                    val deleted = withContext(Dispatchers.IO) { File(path).delete() }
+                                    localModels = scanLocalModels(context)
+                                    if (deleted && settings.localModelPath == path) {
+                                        updateSettings(settings.copy(localModelPath = localModels.firstOrNull()?.file?.absolutePath ?: ""))
+                                    }
+                                    workspaceStatus = if (deleted) "模型文件已删除" else "删除失败，请检查文件状态。"
+                                }
+                            },
+                            onImport = { uris ->
                                 scope.launch {
-                                    isBusy = true
-                                    errorText = ""
+                                    isBusy = true; errorText = ""; workspaceStatus = "正在导入模型文件…"
                                     try {
-                                        val imported = withContext(Dispatchers.IO) { importModel(context, uri) }
-                                        updateSettings(settings.copy(localModelPath = imported.absolutePath))
-                                        workspaceStatus = "已导入：${imported.name}"
+                                        val imported = withContext(Dispatchers.IO) { importModels(context, uris) }
+                                        localModels = scanLocalModels(context)
+                                        imported.firstOrNull { !it.name.contains("mmproj", true) }?.let {
+                                            updateSettings(settings.copy(localModelPath = it.absolutePath))
+                                        }
+                                        val projectorCount = imported.count { it.name.contains("mmproj", true) }
+                                        workspaceStatus = "导入完成：${imported.size} 个 GGUF 文件" +
+                                            if (projectorCount > 0) "（含 ${projectorCount} 个 mmproj 配套文件）" else ""
                                     } catch (e: Exception) {
-                                        errorText = e.message ?: "导入失败"
+                                        errorText = e.message ?: "导入失败"; workspaceStatus = ""
                                     } finally { isBusy = false }
                                 }
                             },
                             onLoad = {
-                                val path = settings.localModelPath
-                                if (path.isNotBlank()) scope.launch {
-                                    isBusy = true
-                                    errorText = ""
+                                val modelPath = settings.localModelPath
+                                if (modelPath.isNotBlank()) scope.launch {
+                                    isBusy = true; errorText = ""; workspaceStatus = "正在加载 GGUF · 准备模型与上下文…"
                                     try {
                                         if (!LocalModelEngine.available) throw IllegalStateException("本地推理引擎未编译进此设备版本")
                                         val e = engine ?: LocalModelEngine().also { engine = it }
                                         val result = withContext(Dispatchers.IO) {
-                                            e.nativeLoad(path, settings.contextSize, Runtime.getRuntime().availableProcessors())
+                                            e.nativeLoad(modelPath, settings.contextSize, settings.localThreads)
                                         }
                                         if (result.startsWith("ERROR:")) throw IllegalStateException(result.removePrefix("ERROR:").trim())
-                                        localLoaded = true
-                                    } catch (e: Exception) { errorText = e.message ?: "加载模型失败" }
-                                    finally { isBusy = false }
+                                        localLoaded = true; workspaceStatus = "模型加载成功 · ${File(modelPath).name}"
+                                    } catch (e: Exception) {
+                                        errorText = e.message ?: "加载模型失败"; workspaceStatus = ""
+                                    } finally { isBusy = false }
                                 }
                             },
                             onUnload = {
                                 scope.launch {
-                                    withContext(Dispatchers.IO) { engine?.nativeUnload() }
-                                    localLoaded = false
-                                    useLocal = false
+                                    isBusy = true
+                                    try {
+                                        withContext(Dispatchers.IO) { engine?.nativeUnload() }
+                                        localLoaded = false; useLocal = false; workspaceStatus = "模型已卸载，内存已释放"
+                                    } finally { isBusy = false }
                                 }
                             }
                         )
@@ -562,22 +584,47 @@ private fun AIStudioApp() {
     }
 }
 
-private fun buildLocalPrompt(messages: List<ChatMessage>, modelPath: String): String {
+private fun buildLocalPrompt(messages: List<ChatMessage>, modelPath: String, systemPrompt: String, selectedTemplate: String): String {
     val recent = messages.filter { it.content.isNotBlank() }.takeLast(24)
-    val system = "你是 AI Studio 的智能助手。请用用户使用的语言回答，准确、清晰，并直接完成用户要求。"
-    return if (modelPath.contains("phi", ignoreCase = true)) {
-        buildString {
+    val system = systemPrompt.ifBlank { "你是 AI Studio 的本地智能助手。请用用户使用的语言回答，准确、清晰，并直接完成用户要求。" }
+    val template = when (selectedTemplate) {
+        "auto" -> if (modelPath.contains("phi", ignoreCase = true)) "phi" else "plain"
+        else -> selectedTemplate
+    }
+    return when (template) {
+        "chatml" -> buildString {
+            append("<|im_start|>system\n").append(system).append("<|im_end|>\n")
+            recent.forEach { message ->
+                append("<|im_start|>").append(if (message.role == "user") "user" else "assistant").append("\n")
+                append(message.content.take(12000)).append("<|im_end|>\n")
+            }
+            append("<|im_start|>assistant\n")
+        }
+        "llama3" -> buildString {
+            append("<|start_header_id|>system<|end_header_id|>\n").append(system).append("<|eot_id|>")
+            recent.forEach { message ->
+                append("<|start_header_id|>").append(if (message.role == "user") "user" else "assistant")
+                    .append("<|end_header_id|>\n").append(message.content.take(12000)).append("<|eot_id|>")
+            }
+            append("<|start_header_id|>assistant<|end_header_id|>\n")
+        }
+        "phi" -> buildString {
             append("<|system|>\n").append(system).append("<|end|>\n")
             recent.forEach { message ->
-                val role = if (message.role == "user") "user" else "assistant"
-                append("<|").append(role).append("|>\n")
-                append(message.content.take(12000))
-                append("<|end|>\n")
+                append("<|").append(if (message.role == "user") "user" else "assistant").append("|>\n")
+                append(message.content.take(12000)).append("<|end|>\n")
             }
             append("<|assistant|>\n")
         }
-    } else {
-        buildString {
+        "alpaca" -> buildString {
+            append("### System:\n").append(system).append("\n\n")
+            recent.forEach { message ->
+                append(if (message.role == "user") "### Instruction:\n" else "### Response:\n")
+                append(message.content.take(12000)).append("\n\n")
+            }
+            append("### Response:\n")
+        }
+        else -> buildString {
             append("系统：").append(system).append("\n")
             recent.forEach { message ->
                 append(if (message.role == "user") "用户：" else "助手：")
@@ -588,18 +635,61 @@ private fun buildLocalPrompt(messages: List<ChatMessage>, modelPath: String): St
     }
 }
 
-private fun importModel(context: Context, uri: Uri): File {
-    val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-        ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
-        ?: "imported-model.gguf"
-    require(name.endsWith(".gguf", ignoreCase = true)) { "请选择 .gguf 格式的模型文件" }
+private data class LocalGgufModel(val file: File) { val sizeBytes: Long get() = file.length() }
+
+private fun scanLocalModels(context: Context): List<LocalGgufModel> {
+    val folder = File(context.filesDir, "models")
+    if (!folder.exists() && !folder.mkdirs()) return emptyList()
+    return folder.listFiles()
+        ?.filter { it.isFile && it.name.endsWith(".gguf", true) && !it.name.contains("mmproj", true) }
+        ?.sortedBy { it.name.lowercase() }
+        ?.map { LocalGgufModel(it) }
+        ?: emptyList()
+}
+
+private fun importModels(context: Context, uris: List<Uri>): List<File> {
     val folder = File(context.filesDir, "models").apply { mkdirs() }
-    val safeName = name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-    val target = File(folder, safeName)
-    context.contentResolver.openInputStream(uri)?.use { input ->
-        FileOutputStream(target).use { output -> input.copyTo(output, 1024 * 1024) }
-    } ?: throw IllegalStateException("无法读取所选文件")
-    return target
+    val imported = mutableListOf<File>()
+    uris.forEach { uri ->
+        val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: "imported-model.gguf"
+        if (!name.endsWith(".gguf", true)) return@forEach
+        val safeName = name.replace(Regex("[^a-zA-Z0-9._-]"), "_").ifBlank { "imported-model.gguf" }
+        val extension = safeName.substringAfterLast('.', "gguf")
+        val base = safeName.removeSuffix(".$extension")
+        var target = File(folder, safeName)
+        var duplicate = 2
+        while (target.exists()) {
+            target = File(folder, base + "_" + duplicate + "." + extension)
+            duplicate++
+        }
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            FileOutputStream(target).use { output -> input.copyTo(output, 1024 * 1024) }
+        } ?: throw IllegalStateException("无法读取文件：$name")
+        if (target.length() <= 4L || !hasGgufMagic(target)) {
+            target.delete()
+            throw IllegalArgumentException("文件不是有效的 GGUF：$name")
+        }
+        imported.add(target)
+    }
+    if (imported.isEmpty()) throw IllegalArgumentException("没有找到 .gguf 文件。请选择 GGUF 主模型或 mmproj 配套文件。")
+    return imported
+}
+
+private fun hasGgufMagic(file: File): Boolean = try {
+    file.inputStream().use { input ->
+        val header = ByteArray(4)
+        input.read(header) == 4 && header.contentEquals(byteArrayOf(0x47, 0x47, 0x55, 0x46))
+    }
+} catch (_: Exception) { false }
+
+private fun formatModelSize(bytes: Long): String {
+    if (bytes < 1024L) return "$bytes B"
+    val units = listOf("KB", "MB", "GB", "TB")
+    var value = bytes.toDouble() / 1024.0
+    var index = 0
+    while (value >= 1024.0 && index < units.lastIndex) { value /= 1024.0; index++ }
+    return String.format(java.util.Locale.US, "%.2f %s", value, units[index])
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -939,72 +1029,158 @@ private fun WorkspaceScreen(
 
 @Composable
 private fun ModelScreen(
-    modifier: Modifier,
-    settings: AppSettings,
-    loaded: Boolean,
-    busy: Boolean,
-    status: String,
-    error: String,
-    onContext: (Int) -> Unit,
-    onImport: (Uri) -> Unit,
-    onLoad: () -> Unit,
-    onUnload: () -> Unit
+    modifier: Modifier, settings: AppSettings, models: List<LocalGgufModel>,
+    loaded: Boolean, busy: Boolean, status: String, error: String,
+    onSettingsChange: (AppSettings) -> Unit, onSelect: (String) -> Unit,
+    onRefresh: () -> Unit, onDelete: (String) -> Unit, onImport: (List<Uri>) -> Unit,
+    onLoad: () -> Unit, onUnload: () -> Unit
 ) {
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) onImport(uri)
-    }
-    val modelFile = settings.localModelPath.substringAfterLast('/')
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> if (uris.isNotEmpty()) onImport(uris) }
+    var templateMenu by remember { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<LocalGgufModel?>(null) }
+    val folder = File(LocalContext.current.filesDir, "models")
+    val projectorCount = folder.listFiles()?.count { it.isFile && it.name.endsWith(".gguf", true) && it.name.contains("mmproj", true) } ?: 0
+    val maxThreads = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
+    val selectedModel = models.firstOrNull { it.file.absolutePath == settings.localModelPath }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("本地模型", fontSize = 23.sp, fontWeight = FontWeight.Bold)
-        Text("直接在本机运行 GGUF 模型。推理引擎已编译到 APK 内，不需要 Termux、Python 或单独的控制台。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (status.isNotBlank()) Text(status, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
-        if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("GGUF 模型库", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text("${models.size} 个本地模型 · llama.cpp CPU 推理", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            }
+            IconButton(onClick = onRefresh, enabled = !busy) { Icon(Icons.Default.FolderOpen, contentDescription = "刷新模型列表") }
+        }
+        Text("管理本机 GGUF 文件、切换模型、调整上下文与采样参数。模型文件保存在应用私有目录，不会上传。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (status.isNotBlank()) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+            Text(status, color = MaterialTheme.colorScheme.onSecondaryContainer, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
+        }
+        if (error.isNotBlank()) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+            Text(error, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
+        }
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Memory, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(
-                            if (settings.hasLocalModel) modelFile else "尚未导入模型",
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            if (loaded) "运行中 · 本机推理" else if (settings.hasLocalModel) "已导入 · 未加载" else "选择一个 .gguf 文件",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Text(if (loaded) "模型运行中" else "当前选择", fontWeight = FontWeight.SemiBold)
+                        Text(selectedModel?.file?.name ?: "尚未选择模型", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     if (loaded) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
                 }
-                OutlinedButton(onClick = { launcher.launch(arrayOf("*/*")) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.UploadFile, null); Spacer(Modifier.width(8.dp)); Text("导入 GGUF 模型")
-                }
-                if (settings.hasLocalModel && !loaded) {
-                    Button(onClick = onLoad, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (busy) "正在加载模型…" else "加载模型")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = { launcher.launch(arrayOf("*/*")) }, enabled = !busy, modifier = Modifier.weight(1f).height(48.dp)) {
+                        Icon(Icons.Default.UploadFile, null); Spacer(Modifier.width(6.dp)); Text("批量导入 GGUF")
                     }
+                    OutlinedButton(onClick = onRefresh, enabled = !busy, modifier = Modifier.height(48.dp)) { Text("刷新") }
                 }
-                if (loaded) {
-                    OutlinedButton(onClick = onUnload, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("卸载模型并释放内存") }
+                if (selectedModel != null) {
+                    Text("文件大小：${formatModelSize(selectedModel.sizeBytes)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("模型路径：${selectedModel.file.parent}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                if (loaded) OutlinedButton(onClick = onUnload, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("卸载模型并释放内存") }
+                else Button(onClick = onLoad, enabled = !busy && selectedModel != null, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "正在加载…" else "加载当前模型") }
+            }
+        }
+        Text("已导入模型", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+        if (models.isEmpty()) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.FolderOpen, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(34.dp))
+                    Spacer(Modifier.height(8.dp)); Text("模型库为空")
+                    Text("导入一个或多个 .gguf 文件即可开始。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                }
+            }
+        } else models.forEach { model ->
+            val selected = settings.localModelPath == model.file.absolutePath
+            val quant = Regex("(?i)Q[0-9]+[_A-Z0-9]*").find(model.file.name)?.value ?: "量化信息未知"
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable(enabled = !loaded || selected) { onSelect(model.file.absolutePath) },
+                border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Memory, null, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(model.file.name, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text("${formatModelSize(model.sizeBytes)} · $quant", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                        }
+                        if (selected) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { onSelect(model.file.absolutePath) }, enabled = !loaded || selected) { Text(if (selected) "当前模型" else "设为当前") }
+                        TextButton(onClick = { deleteTarget = model }, enabled = !busy && !(loaded && selected)) {
+                            Icon(Icons.Default.DeleteOutline, null); Text("删除")
+                        }
+                    }
                 }
             }
         }
-        Text("上下文长度：${settings.contextSize} tokens", fontWeight = FontWeight.Medium)
-        Slider(
-            value = settings.contextSize.toFloat(),
-            onValueChange = { onContext((it.toInt() / 512) * 512) },
-            valueRange = 1024f..8192f,
-            steps = 13
+        HorizontalDivider()
+        Text("推理配置", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("上下文长度：${settings.contextSize} tokens", fontWeight = FontWeight.Medium)
+                Slider(value = settings.contextSize.coerceIn(1024, 8192).toFloat(), onValueChange = { onSettingsChange(settings.copy(contextSize = (it.toInt() / 512 * 512).coerceIn(1024, 8192))) }, valueRange = 1024f..8192f, steps = 13, enabled = !loaded)
+                Text("CPU 线程数：${settings.localThreads}", fontWeight = FontWeight.Medium)
+                Slider(value = settings.localThreads.coerceIn(1, maxThreads).toFloat(), onValueChange = { onSettingsChange(settings.copy(localThreads = it.toInt().coerceIn(1, maxThreads))) }, valueRange = 1f..maxThreads.toFloat(), steps = (maxThreads - 2).coerceAtLeast(0), enabled = !loaded && maxThreads > 1)
+                Text("线程与上下文只在加载模型时生效。当前版本使用 CPU 后端，尚未启用 Vulkan/GPU 层卸载。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Text("采样参数", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Temperature：${String.format(java.util.Locale.US, "%.2f", settings.localTemperature)}")
+                Slider(value = settings.localTemperature, onValueChange = { onSettingsChange(settings.copy(localTemperature = it)) }, valueRange = 0.05f..2.0f, steps = 18)
+                Text("Top-P：${String.format(java.util.Locale.US, "%.2f", settings.localTopP)}")
+                Slider(value = settings.localTopP, onValueChange = { onSettingsChange(settings.copy(localTopP = it)) }, valueRange = 0.05f..1.0f, steps = 18)
+                Text("Top-K：${settings.localTopK}")
+                Slider(value = settings.localTopK.toFloat(), onValueChange = { onSettingsChange(settings.copy(localTopK = it.toInt().coerceIn(1, 200))) }, valueRange = 1f..200f, steps = 18)
+                Text("重复惩罚：${String.format(java.util.Locale.US, "%.2f", settings.localRepeatPenalty)}")
+                Slider(value = settings.localRepeatPenalty, onValueChange = { onSettingsChange(settings.copy(localRepeatPenalty = it)) }, valueRange = 1.0f..2.0f, steps = 19)
+                Text("这些数值会传入 llama.cpp 原生采样器，并在本机保存。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Text("提示词与聊天模板", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(value = settings.localSystemPrompt, onValueChange = { onSettingsChange(settings.copy(localSystemPrompt = it)) }, label = { Text("系统提示词") }, modifier = Modifier.fillMaxWidth(), minLines = 3, maxLines = 6)
+                Box {
+                    OutlinedButton(onClick = { templateMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(when (settings.localPromptTemplate) { "chatml" -> "ChatML"; "llama3" -> "Llama 3"; "phi" -> "Phi"; "alpaca" -> "Alpaca"; else -> "自动识别 / 通用" }, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+                        Icon(Icons.Default.ExpandMore, null)
+                    }
+                    DropdownMenu(expanded = templateMenu, onDismissRequest = { templateMenu = false }) {
+                        listOf("auto" to "自动识别 / 通用", "chatml" to "ChatML", "llama3" to "Llama 3", "phi" to "Phi", "alpaca" to "Alpaca").forEach { item ->
+                            DropdownMenuItem(text = { Text(item.second) }, onClick = { onSettingsChange(settings.copy(localPromptTemplate = item.first)); templateMenu = false })
+                        }
+                    }
+                }
+                Text("模板必须与模型训练时使用的聊天模板匹配；不确定时优先选择自动识别。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Text("配套文件与兼容性", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("检测到 $projectorCount 个 mmproj GGUF 文件")
+                Text("mmproj 文件可以批量导入并留存在本机；当前 JNI 后端尚未接入 mmproj / mtmd 视觉解码，因此图片理解暂不可用。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("当前构建仅启用 arm64-v8a CPU。支持范围取决于 llama.cpp 架构、量化类型和设备内存。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Text("模型文件只存放在应用私有目录。卸载应用会删除本地模型；删除列表中的模型前请确认不再需要。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(16.dp))
+    }
+    if (deleteTarget != null) {
+        val target = deleteTarget!!
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除本地模型？") },
+            text = { Text("将从应用私有目录删除 ${target.file.name}。此操作无法撤销。") },
+            confirmButton = { TextButton(onClick = { onDelete(target.file.absolutePath); deleteTarget = null }) { Text("删除") } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } }
         )
-        Text("上下文越大，记忆的对话越长，也会占用更多内存。建议从 2048 或 4096 开始。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("建议", fontWeight = FontWeight.SemiBold)
-        Text("使用适合手机内存的量化 GGUF（例如 Q4_K_M）。大型模型可能加载失败或导致系统回收应用。模型文件只保存在本机应用私有目录。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
     }
 }
 
