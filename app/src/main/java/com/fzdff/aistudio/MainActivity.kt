@@ -1124,7 +1124,7 @@ private fun ModelScreen(
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("上下文长度：${settings.contextSize} tokens", fontWeight = FontWeight.Medium)
                 Slider(value = settings.contextSize.coerceIn(1024, 8192).toFloat(), onValueChange = { onSettingsChange(settings.copy(contextSize = (it.toInt() / 512 * 512).coerceIn(1024, 8192))) }, valueRange = 1024f..8192f, steps = 13, enabled = !loaded)
-                Text("CPU 线程数：${settings.localThreads.coerceIn(2, maxThreads)}", fontWeight = FontWeight.Medium)
+                Text("CPU 线程数：" + settings.localThreads.coerceIn(2, maxThreads), fontWeight = FontWeight.Medium)
                 if (maxThreads > 2) {
                     Slider(
                         value = settings.localThreads.coerceIn(2, maxThreads).toFloat(),
