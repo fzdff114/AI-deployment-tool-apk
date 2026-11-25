@@ -128,7 +128,7 @@ object AppStore {
             sessionUsed = p.getInt("session_used", 0),
             localModelPath = p.getString("local_model_path", "") ?: "",
             contextSize = p.getInt("context_size", 4096),
-            localThreads = p.getInt("local_threads", 4).coerceIn(1, 8),
+            localThreads = p.getInt("local_threads", 4).coerceIn(2, 8),
             localTemperature = p.getFloat("local_temperature", 0.7f).coerceIn(0.05f, 2.0f),
             localTopP = p.getFloat("local_top_p", 0.92f).coerceIn(0.05f, 1.0f),
             localTopK = p.getInt("local_top_k", 40).coerceIn(1, 200),
@@ -154,7 +154,7 @@ object AppStore {
             .putInt("session_used", s.sessionUsed.coerceAtLeast(0))
             .putString("local_model_path", s.localModelPath)
             .putInt("context_size", s.contextSize.coerceIn(1024, 16384))
-            .putInt("local_threads", s.localThreads.coerceIn(1, 8))
+            .putInt("local_threads", s.localThreads.coerceIn(2, 8))
             .putFloat("local_temperature", s.localTemperature.coerceIn(0.05f, 2.0f))
             .putFloat("local_top_p", s.localTopP.coerceIn(0.05f, 1.0f))
             .putInt("local_top_k", s.localTopK.coerceIn(1, 200))
