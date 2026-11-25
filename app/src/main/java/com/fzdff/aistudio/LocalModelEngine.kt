@@ -11,6 +11,6 @@ class LocalModelEngine {
     }
 
     external fun nativeLoad(path: String, contextSize: Int, threads: Int): String
-    external fun nativeGenerate(prompt: String, maxTokens: Int, temperature: Float): String
+    external fun nativeGenerate(prompt: String, maxTokens: Int, temperature: Float, topP: Float, topK: Int, repeatPenalty: Float, seed: Int): String
     external fun nativeUnload()
 }
