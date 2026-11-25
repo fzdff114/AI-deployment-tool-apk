@@ -950,29 +950,28 @@ private fun ChatScreen(
 private fun MessageBubble(message: ChatMessage) {
     val isUser = message.role == "user"
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
-        if (!isUser) {
-            Icon(Icons.Default.SmartToy, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp, end = 8.dp).size(22.dp))
-        }
-        Surface(
-            color = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-            contentColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-            shape = RoundedCornerShape(if (isUser) 22.dp else 16.dp),
-            border = if (isUser) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
-            modifier = Modifier.widthIn(max = maxWidth * 0.84f).animateContentSize()
-        ) {
-            SelectionContainer {
-                Text(
-                    message.content.ifBlank { "…" },
-                    Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp
-                )
+        val bubbleMaxWidth = maxWidth * 0.84f
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
+            if (!isUser) {
+                Icon(Icons.Default.SmartToy, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp, end = 8.dp).size(22.dp))
+            }
+            Surface(
+                color = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                contentColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                shape = RoundedCornerShape(if (isUser) 22.dp else 16.dp),
+                border = if (isUser) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+                modifier = Modifier.widthIn(max = bubbleMaxWidth).animateContentSize()
+            ) {
+                SelectionContainer {
+                    Text(
+                        message.content.ifBlank { "…" },
+                        Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp
+                    )
+                }
             }
         }
-    }
-}
-
     }
 }
 
