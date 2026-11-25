@@ -26,7 +26,14 @@ data class AppSettings(
     val sessionLimit: Int = 32000,
     val sessionUsed: Int = 0,
     val localModelPath: String = "",
-    val contextSize: Int = 4096
+    val contextSize: Int = 4096,
+    val localThreads: Int = 4,
+    val localTemperature: Float = 0.7f,
+    val localTopP: Float = 0.92f,
+    val localTopK: Int = 40,
+    val localRepeatPenalty: Float = 1.1f,
+    val localSystemPrompt: String = "你是 AI Studio 的本地智能助手。请用用户使用的语言回答，准确、清晰，并直接完成用户要求。",
+    val localPromptTemplate: String = "auto"
 ) {
     val hasLocalModel: Boolean get() = localModelPath.isNotBlank()
 }
@@ -120,7 +127,14 @@ object AppStore {
             sessionLimit = p.getInt("session_limit", 32000),
             sessionUsed = p.getInt("session_used", 0),
             localModelPath = p.getString("local_model_path", "") ?: "",
-            contextSize = p.getInt("context_size", 4096)
+            contextSize = p.getInt("context_size", 4096),
+            localThreads = p.getInt("local_threads", 4).coerceIn(1, 8),
+            localTemperature = p.getFloat("local_temperature", 0.7f).coerceIn(0.05f, 2.0f),
+            localTopP = p.getFloat("local_top_p", 0.92f).coerceIn(0.05f, 1.0f),
+            localTopK = p.getInt("local_top_k", 40).coerceIn(1, 200),
+            localRepeatPenalty = p.getFloat("local_repeat_penalty", 1.1f).coerceIn(1.0f, 2.0f),
+            localSystemPrompt = p.getString("local_system_prompt", "你是 AI Studio 的本地智能助手。请用用户使用的语言回答，准确、清晰，并直接完成用户要求。") ?: "",
+            localPromptTemplate = p.getString("local_prompt_template", "auto") ?: "auto"
         )
     }
 
@@ -140,6 +154,13 @@ object AppStore {
             .putInt("session_used", s.sessionUsed.coerceAtLeast(0))
             .putString("local_model_path", s.localModelPath)
             .putInt("context_size", s.contextSize.coerceIn(1024, 16384))
+            .putInt("local_threads", s.localThreads.coerceIn(1, 8))
+            .putFloat("local_temperature", s.localTemperature.coerceIn(0.05f, 2.0f))
+            .putFloat("local_top_p", s.localTopP.coerceIn(0.05f, 1.0f))
+            .putInt("local_top_k", s.localTopK.coerceIn(1, 200))
+            .putFloat("local_repeat_penalty", s.localRepeatPenalty.coerceIn(1.0f, 2.0f))
+            .putString("local_system_prompt", s.localSystemPrompt)
+            .putString("local_prompt_template", s.localPromptTemplate)
             .apply()
     }
 
