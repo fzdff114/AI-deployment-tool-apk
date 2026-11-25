@@ -431,7 +431,7 @@ private fun AIStudioApp() {
                             onDelete = { path ->
                                 if (localLoaded && path == settings.localModelPath) {
                                     errorText = "请先卸载正在运行的模型，再删除文件。"
-                                } else {
+                                } else scope.launch {
                                     val deleted = withContext(Dispatchers.IO) { File(path).delete() }
                                     localModels = scanLocalModels(context)
                                     if (deleted && settings.localModelPath == path) {
@@ -1040,7 +1040,7 @@ private fun ModelScreen(
     var deleteTarget by remember { mutableStateOf<LocalGgufModel?>(null) }
     val folder = File(LocalContext.current.filesDir, "models")
     val projectorCount = folder.listFiles()?.count { it.isFile && it.name.endsWith(".gguf", true) && it.name.contains("mmproj", true) } ?: 0
-    val maxThreads = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
+    val maxThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
     val selectedModel = models.firstOrNull { it.file.absolutePath == settings.localModelPath }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1124,8 +1124,18 @@ private fun ModelScreen(
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("上下文长度：${settings.contextSize} tokens", fontWeight = FontWeight.Medium)
                 Slider(value = settings.contextSize.coerceIn(1024, 8192).toFloat(), onValueChange = { onSettingsChange(settings.copy(contextSize = (it.toInt() / 512 * 512).coerceIn(1024, 8192))) }, valueRange = 1024f..8192f, steps = 13, enabled = !loaded)
-                Text("CPU 线程数：${settings.localThreads}", fontWeight = FontWeight.Medium)
-                Slider(value = settings.localThreads.coerceIn(1, maxThreads).toFloat(), onValueChange = { onSettingsChange(settings.copy(localThreads = it.toInt().coerceIn(1, maxThreads))) }, valueRange = 1f..maxThreads.toFloat(), steps = (maxThreads - 2).coerceAtLeast(0), enabled = !loaded && maxThreads > 1)
+                Text("CPU 线程数：${settings.localThreads.coerceIn(2, maxThreads)}", fontWeight = FontWeight.Medium)
+                if (maxThreads > 2) {
+                    Slider(
+                        value = settings.localThreads.coerceIn(2, maxThreads).toFloat(),
+                        onValueChange = { onSettingsChange(settings.copy(localThreads = it.toInt().coerceIn(2, maxThreads))) },
+                        valueRange = 2f..maxThreads.toFloat(),
+                        steps = (maxThreads - 3).coerceAtLeast(0),
+                        enabled = !loaded
+                    )
+                } else {
+                    Text("当前设备按 2 个推理线程运行。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Text("线程与上下文只在加载模型时生效。当前版本使用 CPU 后端，尚未启用 Vulkan/GPU 层卸载。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
